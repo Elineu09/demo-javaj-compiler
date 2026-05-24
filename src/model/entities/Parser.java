@@ -38,14 +38,30 @@ public class Parser {
         }
     }
 
+    private SyntaxException syntaxError(String message) {
+        return new SyntaxException(String.format("Erro Sintatico [Linha %d, Coluna %d]. %s Token encontrado: %s ('%s').",
+            currentToken.getLine(), currentToken.getColumn(), message, currentToken.getType(), currentToken.getValue()));
+    }
+
+    private SyntaxException expected(TokenType expectedType) {
+        return syntaxError("Esperado " + expectedType + ".");
+    }
+
+    private void validateToken() {
+        if (currentToken.getType() == TokenType.UNKNOWN) {
+            throw syntaxError("Token invalido.");
+        }
+    }
+
     private Token match(TokenType expectedType) {
+        validateToken();
         if (currentToken.getType() == expectedType) {
             Token consumedToken = currentToken;
             advance();
             return consumedToken;
         } else {
-            throw new SyntaxException(String.format("Erro Sintático [Linha %d]. Esperado %s, mas encontrado %s ('%s').",
-                currentToken.getLine(), expectedType, currentToken.getType(), currentToken.getValue()));        }
+            throw expected(expectedType);
+        }
     }
 
     private void addSymbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
@@ -65,6 +81,7 @@ public class Parser {
             System.out.println("\nAnálise Sintática concluída com sucesso!");
         } catch (SyntaxException e) {
             System.err.println(e.getMessage());
+        	//e.printStackTrace();
         }
     }
 
@@ -105,7 +122,7 @@ public class Parser {
             } else if (type == TokenType.FUNC) {
                 parseFuncDeclaration();
             } else {
-                throw new SyntaxException("Declaração de topo inválida: " + currentToken.getValue());
+                throw syntaxError("Declaracao de topo invalida.");
             }
         }
     }
@@ -320,6 +337,7 @@ public class Parser {
     }
 
     private void parseStatement() {
+        validateToken();
         TokenType type = currentToken.getType();
 
         if (type == TokenType.VAR || type == TokenType.CONST) {
@@ -345,11 +363,13 @@ public class Parser {
             // Goroutines e Defer
             advance();
             parseExpression(); // Exige que seja uma chamada de função
+        } else if (type == TokenType.ELSE) {
+            throw syntaxError("'else' sem um 'if' correspondente.");
         } else if (type == TokenType.IDENTIFIER || type == TokenType.MULTIPLY) {
             // Factorização à esquerda: Pode ser uma variável, um ponteiro (*p = 5), atribuição, incremento, func call...
             parseExpression();
             
-            if (currentToken.getType() == TokenType.ASSIGN || currentToken.getType() == TokenType.DEFINE || currentToken.getType() == TokenType.PLUS_ASSIGN) {
+            if (isAssignmentOperator(currentToken.getType())) {
                 advance();
                 parseExpression();
             } else if (currentToken.getType() == TokenType.INCREMENT || currentToken.getType() == TokenType.DECREMENT) {
@@ -435,8 +455,7 @@ public class Parser {
             parseBlock();
         } else {
             // If none of the above ForTail options matched after an Expression, it's a syntax error.
-            throw new SyntaxException(String.format("Erro Sintático [Linha %d]. Declaração 'for' inválida ou faltando bloco: '%s'.",
-                currentToken.toString().substring(1, currentToken.toString().length() - 1).split(",")[0].trim(), currentToken.getValue()));
+            throw syntaxError("Declaracao 'for' invalida ou faltando bloco.");
         }
     }
 
@@ -494,6 +513,7 @@ public class Parser {
     }
 
     private void parseFactor() {
+        validateToken();
         TokenType type = currentToken.getType();
 
         if (isLiteral(type)) {
@@ -525,7 +545,7 @@ public class Parser {
                 }
             }
         } else {
-            throw new SyntaxException("Fator inesperado na expressão: " + currentToken.getValue());
+            throw syntaxError("Fator inesperado na expressao.");
         }
     }
 
@@ -545,6 +565,16 @@ public class Parser {
         return type == TokenType.EQUAL || type == TokenType.NOT_EQUAL ||
                type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
                type == TokenType.LESS || type == TokenType.LESS_EQUAL;
+    }
+
+    private boolean isAssignmentOperator(TokenType type) {
+        return type == TokenType.ASSIGN || type == TokenType.DEFINE ||
+               type == TokenType.PLUS_ASSIGN || type == TokenType.MINUS_ASSIGN ||
+               type == TokenType.MULTIPLY_ASSIGN || type == TokenType.DIVIDE_ASSIGN ||
+               type == TokenType.MOD_ASSIGN || type == TokenType.AND_ASSIGN ||
+               type == TokenType.OR_ASSIGN || type == TokenType.XOR_ASSIGN ||
+               type == TokenType.LEFT_SHIFT_ASSIGN || type == TokenType.RIGHT_SHIFT_ASSIGN ||
+               type == TokenType.BIT_CLEAR_ASSIGN;
     }
 
     private boolean isLiteral(TokenType type) {
