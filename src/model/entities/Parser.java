@@ -49,11 +49,11 @@ public class Parser {
         }
     }
 
-    private void addSymbol(String name, String type, String category) {
+    private void addSymbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
         if (symbolTable.containsKey(name) && symbolTable.get(name).getScopeLevel() == currentScopeLevel) {
             throw new SyntaxException("Erro Semântico Inicial: O identificador '" + name + "' já foi declarado neste escopo.");
         }
-        Symbol sym = new Symbol(name, type, category, currentScopeLevel);
+        Symbol sym = new Symbol(name, type, category, scopeLevel, isInitialized, assignedValue);
         symbolTable.put(name, sym);
         System.out.println("Tabela de Símbolos -> Adicionado: " + sym);
     }
@@ -118,19 +118,63 @@ public class Parser {
         
         Token idToken = match(TokenType.IDENTIFIER);
         String typeStr = "inferido";
-        
+        String assignedVal = null; // Initialize assignedValue
+
         // Se não for um '=', assume-se que vem a declaração do tipo (ex: int, *float64)
         if (currentToken.getType() != TokenType.ASSIGN) {
             typeStr = parseType();
         }
 
+        boolean isInitialized = false; // Assume not initialized by default
         if (currentToken.getType() == TokenType.ASSIGN) {
+            isInitialized = true; // Mark as initialized
             advance();
+            
+            // Capture the tokens of the expression to reconstruct the assigned value string
+            int exprStartIndex = currentTokenIndex;
             parseExpression();
+            int exprEndIndex = currentTokenIndex; // currentTokenIndex is now past the expression
+
+            StringBuilder exprBuilder = new StringBuilder();
+            // Iterate from the start of the expression to the end (exclusive of currentTokenIndex)
+            for (int i = exprStartIndex; i < exprEndIndex; i++) {
+                if (i < tokens.size()) { 
+                    exprBuilder.append(tokens.get(i).getValue());
+                    // Add space only if it's not the last token and not a specific punctuation
+                    if (i < exprEndIndex - 1 && 
+                        !isPunctuation(tokens.get(i).getType()) && 
+                        !isPunctuation(tokens.get(i+1).getType())) {
+                        exprBuilder.append(" ");
+                    }
+                }
+            }
+            assignedVal = exprBuilder.toString().trim();
         }
         
-        addSymbol(idToken.getValue(), typeStr, isConst ? "CONST" : "VAR");
+        // Update the addSymbol call
+        addSymbol(idToken.getValue(), typeStr, isConst ? "CONST" : "VAR", currentScopeLevel, isInitialized, assignedVal);
     }
+
+    // Helper to identify punctuation for better string reconstruction in assignedValue
+    private boolean isPunctuation(TokenType type) {
+        return type == TokenType.DOT || type == TokenType.COMMA || type == TokenType.SEMICOLON ||
+               type == TokenType.LPAREN || type == TokenType.RPAREN || 
+               type == TokenType.LBRACKET || type == TokenType.RBRACKET ||
+               type == TokenType.LBRACE || type == TokenType.RBRACE ||
+               type == TokenType.COLON || type == TokenType.ASSIGN ||
+               type == TokenType.DEFINE || type == TokenType.PLUS_ASSIGN ||
+               type == TokenType.MINUS || type == TokenType.PLUS ||
+               type == TokenType.MULTIPLY || type == TokenType.DIVIDE || type == TokenType.MOD ||
+               type == TokenType.EQUAL || type == TokenType.NOT_EQUAL ||
+               type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
+               type == TokenType.LESS || type == TokenType.LESS_EQUAL ||
+               type == TokenType.LOGICAL_AND || type == TokenType.LOGICAL_OR ||
+               type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND ||
+               type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
+    }
+
+}
+
 
     // Lida com 'type Pessoa struct { ... }' e 'type IPessoa interface { ... }'
     private void parseTypeDeclaration() {
@@ -145,7 +189,7 @@ public class Parser {
                 parseType(); // Tipo do campo
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken.getValue(), "struct", "TYPE");
+            addSymbol(idToken.getValue(), "struct", "TYPE", currentScopeLevel, false, null);
         } else if (currentToken.getType() == TokenType.INTERFACE) {
             advance();
             match(TokenType.LBRACE);
@@ -154,16 +198,16 @@ public class Parser {
                 match(TokenType.LPAREN);
                 parseOptionalParameters();
                 match(TokenType.RPAREN);
-                if (currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.IDENTIFIER) {
+                if (currentToken.getType() != TokenType.RBRACE) {
                     parseFuncReturnType();
                 }
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken.getValue(), "interface", "TYPE");
+            addSymbol(idToken.getValue(), "interface", "TYPE", currentScopeLevel, false, null);
         } else {
             // Alias de tipo (ex: type MeuInt int)
             parseType();
-            addSymbol(idToken.getValue(), "alias", "TYPE");
+            addSymbol(idToken.getValue(), "alias", "TYPE", currentScopeLevel, false, null);
         }
     }
 
@@ -385,13 +429,15 @@ public class Parser {
             match(TokenType.SEMICOLON);
             parseStatement(); // Update (i++)
             parseBlock();
+        } else if (currentToken.getType() == TokenType.RANGE) {
+            // Single range loop (ex: for k := range map or for range map)
+            advance(); // range
+            parseExpression();
+            parseBlock();
         } else {
-            // Outros casos de Range (ex: apenas um iterador)
-            if (currentToken.getType() == TokenType.RANGE) {
-                advance(); parseExpression(); parseBlock();
-            } else {
-                parseBlock();
-            }
+            // If none of the above ForTail options matched after an Expression, it's a syntax error.
+            throw new SyntaxException(String.format("Erro Sintático [Linha %d]. Declaração 'for' inválida ou faltando bloco: '%s'.",
+                currentToken.toString().substring(1, currentToken.toString().length() - 1).split(",")[0].trim(), currentToken.getValue()));
         }
     }
 
