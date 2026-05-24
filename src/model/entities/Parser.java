@@ -8,6 +8,8 @@ import model.enums.TokenType;
 import model.exceptions.SyntaxException;
 
 public class Parser {
+	
+	private int errorLine = 0;
 
     private List<Token> tokens;
     private int currentTokenIndex;
@@ -81,6 +83,7 @@ public class Parser {
             System.out.println("\nAnálise Sintática concluída com sucesso!");
         } catch (SyntaxException e) {
             System.err.println(e.getMessage());
+            errorLine = currentToken.getLine();
         	//e.printStackTrace();
         }
     }
@@ -582,4 +585,8 @@ public class Parser {
                type == TokenType.STRING_LITERAL || type == TokenType.RAW_STRING_LITERAL ||
                type == TokenType.TRUE || type == TokenType.FALSE;
     }
+
+	public int getErrorLine() {
+		return errorLine;
+	}
 }
