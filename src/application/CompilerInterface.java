@@ -92,9 +92,9 @@ public class CompilerInterface extends JFrame {
 		// Painel de botões
 		JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
 
-		JButton openButton = new JButton("Open File");
-		JButton saveButton = new JButton("Save");
-		JButton compileButton = new JButton("Analyze");
+		JButton openButton = new JButton("Abrir Fiehceiro");
+		JButton saveButton = new JButton("Guardar");
+		JButton compileButton = new JButton("Analizar");
 
 		buttonPanel.add(openButton);
 		buttonPanel.add(saveButton);
@@ -267,16 +267,6 @@ public class CompilerInterface extends JFrame {
 		isUpdatingCaret = false;
 	}
 
-	/**
-	 * Destaca uma linha específica em vermelho
-	 * 
-	 * @param line Número da linha (começando em 1)
-	 */
-	/**
-	 * Destaca uma linha específica em vermelho
-	 * 
-	 * @param line Número da linha (começando em 1)
-	 */
 	public void highlightError(int line) {
 
 		try {
@@ -328,13 +318,13 @@ public class CompilerInterface extends JFrame {
 
 				editorPane.setText(content);
 
-				consoleArea.setText("File loaded: " + currentFile.getName() + "\n");
+				consoleArea.setText("Ficheiro Carregado: " + currentFile.getName() + "\n");
 
 				updateInterface();
 
 			} catch (IOException ex) {
 
-				consoleArea.setText("Error reading file: " + ex.getMessage());
+				consoleArea.setText("Erro ao ler ficheiro: " + ex.getMessage());
 			}
 		}
 	}
@@ -359,11 +349,11 @@ public class CompilerInterface extends JFrame {
 
 			Files.writeString(currentFile.toPath(), editorPane.getText(), StandardCharsets.UTF_8);
 
-			consoleArea.append("File saved successfully!\n");
+			consoleArea.append("Ficheiro salvo com sucesso!\n");
 
 		} catch (IOException ex) {
 
-			consoleArea.append("Error saving file: " + ex.getMessage() + "\n");
+			consoleArea.append("Erro ao salvar ficheiro: " + ex.getMessage() + "\n");
 		}
 	}
 
@@ -371,7 +361,7 @@ public class CompilerInterface extends JFrame {
 
 		if (editorPane.getText().trim().isEmpty()) {
 
-			consoleArea.setText("The editor is empty. Write some Go code first.");
+			consoleArea.setText("O editor está vazio.");
 
 			return;
 		}
@@ -382,13 +372,13 @@ public class CompilerInterface extends JFrame {
 
 			List<String> sourceCode = List.of(editorPane.getText().split("\\r?\\n"));
 
-			System.out.println("### STARTING LEXICAL ANALYSIS ###");
+			System.out.println("### INICIANDO ANÁLISE LÉXICA ###");
 
 			Lexer lexer = new Lexer(sourceCode);
 
 			lexer.analex();
 
-			System.out.println("\n### STARTING SYNTACTIC ANALYSIS ###");
+			System.out.println("\n### INICIANDO ANÁLISE SINTÁTICA ###");
 
 			Parser parser = new Parser(lexer.getTokens());
 
@@ -397,7 +387,7 @@ public class CompilerInterface extends JFrame {
 
 		} catch (Exception ex) {
 
-			System.err.println("Critical execution error: " + ex.getMessage());
+			System.err.println("Erro crítico na execução: " + ex.getMessage());
 		}
 	}
 

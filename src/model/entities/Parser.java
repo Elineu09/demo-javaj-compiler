@@ -144,22 +144,22 @@ public class Parser {
             typeStr = parseType();
         }
 
-        boolean isInitialized = false; // Assume not initialized by default
+        boolean isInitialized = false; 
         if (currentToken.getType() == TokenType.ASSIGN) {
-            isInitialized = true; // Mark as initialized
+            isInitialized = true; 
             advance();
             
-            // Capture the tokens of the expression to reconstruct the assigned value string
+            // Pega os tokens da expressão para reconstruir a string do valor atribuído
             int exprStartIndex = currentTokenIndex;
             parseExpression();
-            int exprEndIndex = currentTokenIndex; // currentTokenIndex is now past the expression
+            int exprEndIndex = currentTokenIndex; 
 
             StringBuilder exprBuilder = new StringBuilder();
-            // Iterate from the start of the expression to the end (exclusive of currentTokenIndex)
+        
             for (int i = exprStartIndex; i < exprEndIndex; i++) {
                 if (i < tokens.size()) { 
                     exprBuilder.append(tokens.get(i).getValue());
-                    // Add space only if it's not the last token and not a specific punctuation
+                    
                     if (i < exprEndIndex - 1 && 
                         !isPunctuation(tokens.get(i).getType()) && 
                         !isPunctuation(tokens.get(i+1).getType())) {
@@ -170,11 +170,10 @@ public class Parser {
             assignedVal = exprBuilder.toString().trim();
         }
         
-        // Update the addSymbol call
         addSymbol(idToken.getValue(), typeStr, isConst ? "CONST" : "VAR", currentScopeLevel, isInitialized, assignedVal);
     }
 
-    // Helper to identify punctuation for better string reconstruction in assignedValue
+    // Helper para identificar pontuação
     private boolean isPunctuation(TokenType type) {
         return type == TokenType.DOT || type == TokenType.COMMA || type == TokenType.SEMICOLON ||
                type == TokenType.LPAREN || type == TokenType.RPAREN || 
@@ -191,8 +190,6 @@ public class Parser {
                type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND ||
                type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
     }
-
-
 
 
     // Lida com 'type Pessoa struct { ... }' e 'type IPessoa interface { ... }'
@@ -432,7 +429,7 @@ public class Parser {
             return;
         }
 
-        // Tentar resolver Range vs Clássico vs While (fatorização no lookahead)
+        // Tenta resolver Range vs Clássico vs While (fatorização no lookahead)
         parseExpression();
 
         if (currentToken.getType() == TokenType.LBRACE) {
@@ -457,7 +454,6 @@ public class Parser {
             parseExpression();
             parseBlock();
         } else {
-            // If none of the above ForTail options matched after an Expression, it's a syntax error.
             throw syntaxError("Declaracao 'for' invalida ou faltando bloco.");
         }
     }
