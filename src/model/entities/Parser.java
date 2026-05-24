@@ -44,9 +44,8 @@ public class Parser {
             advance();
             return consumedToken;
         } else {
-            throw new SyntaxException(String.format("Erro Sintático [Linha %d]. Esperado %s, mas encontrado %s ('%s').", 
-                currentToken.toString().substring(1, 3), expectedType, currentToken.getType(), currentToken.getValue()));
-        }
+            throw new SyntaxException(String.format("Erro Sintático [Linha %d]. Esperado %s, mas encontrado %s ('%s').",
+                currentToken.getLine(), expectedType, currentToken.getType(), currentToken.getValue()));        }
     }
 
     private void addSymbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
