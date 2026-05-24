@@ -173,7 +173,7 @@ public class Parser {
                type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
     }
 
-}
+
 
 
     // Lida com 'type Pessoa struct { ... }' e 'type IPessoa interface { ... }'
@@ -225,7 +225,7 @@ public class Parser {
         }
         
         Token idToken = match(TokenType.IDENTIFIER);
-        addSymbol(idToken.getValue(), "func", "FUNC");
+        addSymbol(idToken.getValue(), "func", "FUNC", currentScopeLevel, false, null);
         
         match(TokenType.LPAREN);
         parseOptionalParameters();
