@@ -2,14 +2,14 @@ package model.entities;
 
 public class Symbol {
 	private String name;
-	private String type; // Represents data type (e.g., "int", "string", "struct Persona")
-	private String category; // Represents variable type (e.g., "VAR", "CONST", "FUNC", "TYPE")
+	private String type; 
+	private String category; 
 	private int scopeLevel;
 	
 	private boolean isInitialized;
-	private String assignedValue; // Stores the literal value or a representation of the assigned expression
-	private int memoryAddress; // Placeholder for semantic/code generation phase
-	private int sizeInBytes;   // Placeholder for semantic/code generation phase
+	private String assignedValue; 
+	private int memoryAddress;
+	private int sizeInBytes;   
 
 	public Symbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
 		super();
@@ -19,13 +19,12 @@ public class Symbol {
 		this.scopeLevel = scopeLevel;
 		this.isInitialized = isInitialized;
 		this.assignedValue = assignedValue;
-		this.memoryAddress = 0; // Default placeholder
-		this.sizeInBytes = 0;   // Default placeholder
+		this.memoryAddress = 0; 
+		this.sizeInBytes = 0;   
 	}
 	
-	// Existing constructor for backward compatibility, will be updated in Parser.java
 	public Symbol(String name, String type, String category, int scopeLevel) {
-		this(name, type, category, scopeLevel, false, null); // Default to not initialized, no assigned value
+		this(name, type, category, scopeLevel, false, null); 
 	}
 
 	public boolean isInitialized() {

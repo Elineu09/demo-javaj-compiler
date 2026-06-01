@@ -1,5 +1,7 @@
 package model.entities;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -8,13 +10,16 @@ import model.enums.TokenType;
 import model.exceptions.SyntaxException;
 
 public class Parser {
-	
-	private int errorLine = 0;
+
+    private int errorLine = 0;
+
+    private List<String> errors;
+    private List<Integer> errorLines;
 
     private List<Token> tokens;
     private int currentTokenIndex;
     private Token currentToken;
-    
+
     private Map<String, Symbol> symbolTable;
     private int currentScopeLevel;
 
@@ -23,7 +28,9 @@ public class Parser {
         this.currentTokenIndex = 0;
         this.symbolTable = new HashMap<>();
         this.currentScopeLevel = 0;
-        
+        this.errors = new ArrayList<>();
+        this.errorLines = new ArrayList<>();
+
         if (!tokens.isEmpty()) {
             this.currentToken = tokens.get(0);
         }
@@ -36,13 +43,15 @@ public class Parser {
         if (currentTokenIndex < tokens.size()) {
             currentToken = tokens.get(currentTokenIndex);
         } else {
-            currentToken = tokens.get(tokens.size() - 1); 
+            currentToken = tokens.get(tokens.size() - 1);
         }
     }
 
     private SyntaxException syntaxError(String message) {
-        return new SyntaxException(String.format("Erro Sintatico [Linha %d, Coluna %d]. %s Token encontrado: %s ('%s').",
-            currentToken.getLine(), currentToken.getColumn(), message, currentToken.getType(), currentToken.getValue()));
+        return new SyntaxException(
+                String.format("Erro Sintatico [Linha %d, Coluna %d]. %s Token encontrado: %s ('%s').",
+                        currentToken.getLine(), currentToken.getColumn(), message, currentToken.getType(),
+                        currentToken.getValue()));
     }
 
     private SyntaxException expected(TokenType expectedType) {
@@ -66,49 +75,205 @@ public class Parser {
         }
     }
 
-    private void addSymbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
+    private void reportError(SyntaxException e) {
+        errors.add(e.getMessage());
+
+        int line = extractErrorLine(e.getMessage());
+        errorLines.add(line);
+
+        if (errorLine == 0) {
+            errorLine = line;
+        }
+    }
+
+    private int extractErrorLine(String message) {
+        if (message == null) {
+            return currentToken != null ? currentToken.getLine() : 0;
+        }
+
+        String marker = "[Linha ";
+        int markerIndex = message.indexOf(marker);
+
+        if (markerIndex >= 0) {
+            int start = markerIndex + marker.length();
+            int end = start;
+
+            while (end < message.length() && Character.isDigit(message.charAt(end))) {
+                end++;
+            }
+
+            if (end > start) {
+                return Integer.parseInt(message.substring(start, end));
+            }
+        }
+
+        return currentToken != null ? currentToken.getLine() : 0;
+    }
+
+    private void addSymbol(Token idToken, String type, String category, int scopeLevel, boolean isInitialized,
+            String assignedValue) {
+        String name = idToken.getValue();
+
         if (symbolTable.containsKey(name) && symbolTable.get(name).getScopeLevel() == currentScopeLevel) {
-            throw new SyntaxException("Erro Semântico Inicial: O identificador '" + name + "' já foi declarado neste escopo.");
+            throw new SyntaxException(
+                    String.format("Erro Semantico [Linha %d, Coluna %d]. O identificador '%s' ja foi declarado neste escopo.",
+                            idToken.getLine(), idToken.getColumn(), name));
         }
         Symbol sym = new Symbol(name, type, category, scopeLevel, isInitialized, assignedValue);
         symbolTable.put(name, sym);
         System.out.println("Tabela de Símbolos -> Adicionado: " + sym);
     }
 
-    // ─── Início da Análise top-down ─────────────────────────────────────────
+    // Recuperacao de erros 
+    private void recoverDeclaration() {
+        if (currentToken == null || currentToken.getType() == TokenType.EOF) {
+            return;
+        }
 
+        if (currentToken.getType() == TokenType.SEMICOLON || currentToken.getType() == TokenType.RBRACE) {
+            advance();
+            return;
+        }
+
+        if (isTopLevelStart(currentToken.getType())) {
+            return;
+        }
+
+        advance();
+
+        while (currentToken.getType() != TokenType.EOF) {
+            if (currentToken.getType() == TokenType.SEMICOLON || currentToken.getType() == TokenType.RBRACE) {
+                advance();
+                return;
+            }
+
+            if (isTopLevelStart(currentToken.getType())) {
+                return;
+            }
+
+            advance();
+        }
+    }
+
+    private boolean isTopLevelStart(TokenType type) {
+        return type == TokenType.IMPORT || type == TokenType.FUNC || type == TokenType.VAR
+                || type == TokenType.CONST || type == TokenType.TYPE;
+    }
+
+    private void recoverStatement() {
+        recoverToStatementStart(true, false);
+    }
+
+    private void recoverSwitchCase() {
+        recoverToStatementStart(true, true);
+    }
+
+    private void recoverToStatementStart(boolean stopAtBlockEnd, boolean stopAtSwitchCase) {
+        if (currentToken == null || currentToken.getType() == TokenType.EOF) {
+            return;
+        }
+
+        if (currentToken.getType() == TokenType.SEMICOLON) {
+            advance();
+            return;
+        }
+
+        if (isRecoveryBoundary(currentToken.getType(), stopAtBlockEnd, stopAtSwitchCase)) {
+            return;
+        }
+
+        advance();
+
+        while (currentToken.getType() != TokenType.EOF) {
+            if (currentToken.getType() == TokenType.SEMICOLON) {
+                advance();
+                return;
+            }
+
+            if (isRecoveryBoundary(currentToken.getType(), stopAtBlockEnd, stopAtSwitchCase)
+                    || isDeclarationOrStatementStart(currentToken.getType())) {
+                return;
+            }
+
+            advance();
+        }
+    }
+
+    private boolean isRecoveryBoundary(TokenType type, boolean stopAtBlockEnd, boolean stopAtSwitchCase) {
+        return (stopAtBlockEnd && type == TokenType.RBRACE)
+                || (stopAtSwitchCase && (type == TokenType.CASE || type == TokenType.DEFAULT));
+    }
+
+    private boolean isDeclarationOrStatementStart(TokenType type) {
+        switch (type) {
+            case FUNC:
+            case VAR:
+            case CONST:
+            case TYPE:
+            case IDENTIFIER:
+            case IF:
+            case FOR:
+            case SWITCH:
+            case RETURN:
+            case GO:
+            case DEFER:
+            case BREAK:
+            case CONTINUE:
+            case FALLTHROUGH:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // Inicio da analise top-down
     public void parse() {
         try {
             parseProgram();
-            System.out.println("\nAnálise Sintática concluída com sucesso!");
         } catch (SyntaxException e) {
-            System.err.println(e.getMessage());
-            errorLine = currentToken.getLine();
-        	//e.printStackTrace();
+            reportError(e);
+            recoverDeclaration();
+        }
+
+        if (errors.isEmpty()) {
+            System.out.println("\nAnálise Sintática concluída com sucesso!\n");
+        } else {
+            System.out.println("\nForam encontrados " + errors.size() + " erros.\n");
+            errors.forEach(System.err::println);
         }
     }
 
     private void parseProgram() {
-        match(TokenType.PACKAGE);
-        match(TokenType.IDENTIFIER);
-        
+        try {
+            match(TokenType.PACKAGE);
+            match(TokenType.IDENTIFIER);
+        } catch (SyntaxException e){
+            reportError(e);
+            recoverDeclaration();
+        }
+
         parseImports();
         parseTopLevelDeclarations();
-        
+
         match(TokenType.EOF);
     }
 
     private void parseImports() {
         while (currentToken.getType() == TokenType.IMPORT) {
-            advance();
-            if (currentToken.getType() == TokenType.LPAREN) {
+            try {
                 advance();
-                while (currentToken.getType() == TokenType.STRING_LITERAL) {
+                if (currentToken.getType() == TokenType.LPAREN) {
                     advance();
+                    while (currentToken.getType() == TokenType.STRING_LITERAL) {
+                        advance();
+                    }
+                    match(TokenType.RPAREN);
+                } else {
+                    match(TokenType.STRING_LITERAL);
                 }
-                match(TokenType.RPAREN);
-            } else {
-                match(TokenType.STRING_LITERAL);
+            } catch (SyntaxException e) {
+                reportError(e);
+                recoverDeclaration();
             }
         }
     }
@@ -117,15 +282,25 @@ public class Parser {
 
     private void parseTopLevelDeclarations() {
         while (currentToken.getType() != TokenType.EOF) {
-            TokenType type = currentToken.getType();
-            if (type == TokenType.VAR || type == TokenType.CONST) {
-                parseVarOrConstDeclaration();
-            } else if (type == TokenType.TYPE) {
-                parseTypeDeclaration();
-            } else if (type == TokenType.FUNC) {
-                parseFuncDeclaration();
-            } else {
-                throw syntaxError("Declaracao de topo invalida.");
+            try {
+                if (currentToken.getType() == TokenType.SEMICOLON) {
+                    advance();
+                    continue;
+                }
+
+                TokenType type = currentToken.getType();
+                if (type == TokenType.VAR || type == TokenType.CONST) {
+                    parseVarOrConstDeclaration();
+                } else if (type == TokenType.TYPE) {
+                    parseTypeDeclaration();
+                } else if (type == TokenType.FUNC) {
+                    parseFuncDeclaration();
+                } else {
+                    throw syntaxError("Declaracao de topo invalida.");
+                }
+            } catch (SyntaxException e) {
+                reportError(e);
+                recoverDeclaration();
             }
         }
     }
@@ -134,7 +309,7 @@ public class Parser {
     private void parseVarOrConstDeclaration() {
         boolean isConst = currentToken.getType() == TokenType.CONST;
         advance(); // Consome var ou const
-        
+
         Token idToken = match(TokenType.IDENTIFIER);
         String typeStr = "inferido";
         String assignedVal = null; // Initialize assignedValue
@@ -144,59 +319,59 @@ public class Parser {
             typeStr = parseType();
         }
 
-        boolean isInitialized = false; 
+        boolean isInitialized = false;
         if (currentToken.getType() == TokenType.ASSIGN) {
-            isInitialized = true; 
+            isInitialized = true;
             advance();
-            
+
             // Pega os tokens da expressão para reconstruir a string do valor atribuído
             int exprStartIndex = currentTokenIndex;
             parseExpression();
-            int exprEndIndex = currentTokenIndex; 
+            int exprEndIndex = currentTokenIndex;
 
             StringBuilder exprBuilder = new StringBuilder();
-        
+
             for (int i = exprStartIndex; i < exprEndIndex; i++) {
-                if (i < tokens.size()) { 
+                if (i < tokens.size()) {
                     exprBuilder.append(tokens.get(i).getValue());
-                    
-                    if (i < exprEndIndex - 1 && 
-                        !isPunctuation(tokens.get(i).getType()) && 
-                        !isPunctuation(tokens.get(i+1).getType())) {
+
+                    if (i < exprEndIndex - 1 &&
+                            !isPunctuation(tokens.get(i).getType()) &&
+                            !isPunctuation(tokens.get(i + 1).getType())) {
                         exprBuilder.append(" ");
                     }
                 }
             }
             assignedVal = exprBuilder.toString().trim();
         }
-        
-        addSymbol(idToken.getValue(), typeStr, isConst ? "CONST" : "VAR", currentScopeLevel, isInitialized, assignedVal);
+
+        addSymbol(idToken, typeStr, isConst ? "CONST" : "VAR", currentScopeLevel, isInitialized,
+                assignedVal);
     }
 
     // Helper para identificar pontuação
     private boolean isPunctuation(TokenType type) {
         return type == TokenType.DOT || type == TokenType.COMMA || type == TokenType.SEMICOLON ||
-               type == TokenType.LPAREN || type == TokenType.RPAREN || 
-               type == TokenType.LBRACKET || type == TokenType.RBRACKET ||
-               type == TokenType.LBRACE || type == TokenType.RBRACE ||
-               type == TokenType.COLON || type == TokenType.ASSIGN ||
-               type == TokenType.DEFINE || type == TokenType.PLUS_ASSIGN ||
-               type == TokenType.MINUS || type == TokenType.PLUS ||
-               type == TokenType.MULTIPLY || type == TokenType.DIVIDE || type == TokenType.MOD ||
-               type == TokenType.EQUAL || type == TokenType.NOT_EQUAL ||
-               type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
-               type == TokenType.LESS || type == TokenType.LESS_EQUAL ||
-               type == TokenType.LOGICAL_AND || type == TokenType.LOGICAL_OR ||
-               type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND ||
-               type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
+                type == TokenType.LPAREN || type == TokenType.RPAREN ||
+                type == TokenType.LBRACKET || type == TokenType.RBRACKET ||
+                type == TokenType.LBRACE || type == TokenType.RBRACE ||
+                type == TokenType.COLON || type == TokenType.ASSIGN ||
+                type == TokenType.DEFINE || type == TokenType.PLUS_ASSIGN ||
+                type == TokenType.MINUS || type == TokenType.PLUS ||
+                type == TokenType.MULTIPLY || type == TokenType.DIVIDE || type == TokenType.MOD ||
+                type == TokenType.EQUAL || type == TokenType.NOT_EQUAL ||
+                type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
+                type == TokenType.LESS || type == TokenType.LESS_EQUAL ||
+                type == TokenType.LOGICAL_AND || type == TokenType.LOGICAL_OR ||
+                type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND ||
+                type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
     }
-
 
     // Lida com 'type Pessoa struct { ... }' e 'type IPessoa interface { ... }'
     private void parseTypeDeclaration() {
         match(TokenType.TYPE);
         Token idToken = match(TokenType.IDENTIFIER);
-        
+
         if (currentToken.getType() == TokenType.STRUCT) {
             advance();
             match(TokenType.LBRACE);
@@ -205,7 +380,7 @@ public class Parser {
                 parseType(); // Tipo do campo
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken.getValue(), "struct", "TYPE", currentScopeLevel, false, null);
+            addSymbol(idToken, "struct", "TYPE", currentScopeLevel, false, null);
         } else if (currentToken.getType() == TokenType.INTERFACE) {
             advance();
             match(TokenType.LBRACE);
@@ -219,11 +394,11 @@ public class Parser {
                 }
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken.getValue(), "interface", "TYPE", currentScopeLevel, false, null);
+            addSymbol(idToken, "interface", "TYPE", currentScopeLevel, false, null);
         } else {
             // Alias de tipo (ex: type MeuInt int)
             parseType();
-            addSymbol(idToken.getValue(), "alias", "TYPE", currentScopeLevel, false, null);
+            addSymbol(idToken, "alias", "TYPE", currentScopeLevel, false, null);
         }
     }
 
@@ -231,7 +406,7 @@ public class Parser {
 
     private void parseFuncDeclaration() {
         match(TokenType.FUNC);
-        
+
         // Suporte para funções receptoras (Methods): func (p *Pessoa) Falar()
         if (currentToken.getType() == TokenType.LPAREN) {
             advance();
@@ -239,19 +414,19 @@ public class Parser {
             parseType();
             match(TokenType.RPAREN);
         }
-        
+
         Token idToken = match(TokenType.IDENTIFIER);
-        addSymbol(idToken.getValue(), "func", "FUNC", currentScopeLevel, false, null);
-        
+        addSymbol(idToken, "func", "FUNC", currentScopeLevel, false, null);
+
         match(TokenType.LPAREN);
         parseOptionalParameters();
         match(TokenType.RPAREN);
-        
+
         // Retorno (Pode ser simples ou múltiplo)
         if (currentToken.getType() != TokenType.LBRACE) {
             parseFuncReturnType();
         }
-        
+
         parseBlock();
     }
 
@@ -259,7 +434,7 @@ public class Parser {
         if (currentToken.getType() == TokenType.IDENTIFIER) {
             advance();
             parseType(); // Tipo do parâmetro
-            
+
             while (currentToken.getType() == TokenType.COMMA) {
                 advance();
                 match(TokenType.IDENTIFIER);
@@ -326,12 +501,17 @@ public class Parser {
     private void parseBlock() {
         match(TokenType.LBRACE);
         currentScopeLevel++;
-        
+
         while (currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.EOF) {
-            parseStatement();
-            if (currentToken.getType() == TokenType.SEMICOLON) advance();
+            try {
+                parseStatement();
+                if (currentToken.getType() == TokenType.SEMICOLON) advance();
+            } catch(SyntaxException e){
+                reportError(e);
+                recoverStatement();
+            }
         }
-        
+
         currentScopeLevel--;
         match(TokenType.RBRACE);
     }
@@ -353,8 +533,9 @@ public class Parser {
             if (currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.SEMICOLON) {
                 parseExpression();
                 // Suporte simplificado a múltiplos retornos no return
-                while(currentToken.getType() == TokenType.COMMA) {
-                    advance(); parseExpression();
+                while (currentToken.getType() == TokenType.COMMA) {
+                    advance();
+                    parseExpression();
                 }
             }
         } else if (type == TokenType.BREAK || type == TokenType.CONTINUE || type == TokenType.FALLTHROUGH) {
@@ -366,9 +547,10 @@ public class Parser {
         } else if (type == TokenType.ELSE) {
             throw syntaxError("'else' sem um 'if' correspondente.");
         } else if (type == TokenType.IDENTIFIER || type == TokenType.MULTIPLY) {
-            // Factorização à esquerda: Pode ser uma variável, um ponteiro (*p = 5), atribuição, incremento, func call...
+            // Factorização à esquerda: Pode ser uma variável, um ponteiro (*p = 5),
+            // atribuição, incremento, func call...
             parseExpression();
-            
+
             if (isAssignmentOperator(currentToken.getType())) {
                 advance();
                 parseExpression();
@@ -384,7 +566,7 @@ public class Parser {
         match(TokenType.IF);
         parseExpression();
         parseBlock();
-        
+
         if (currentToken.getType() == TokenType.ELSE) {
             advance();
             if (currentToken.getType() == TokenType.IF) {
@@ -401,7 +583,7 @@ public class Parser {
             parseExpression(); // Condição opcional
         }
         match(TokenType.LBRACE);
-        
+
         while (currentToken.getType() == TokenType.CASE || currentToken.getType() == TokenType.DEFAULT) {
             if (currentToken.getType() == TokenType.CASE) {
                 advance();
@@ -411,10 +593,17 @@ public class Parser {
                 advance();
                 match(TokenType.COLON);
             }
-            
+
             // Comandos do case
-            while (currentToken.getType() != TokenType.CASE && currentToken.getType() != TokenType.DEFAULT && currentToken.getType() != TokenType.RBRACE) {
-                parseStatement();
+            while (currentToken.getType() != TokenType.CASE && currentToken.getType() != TokenType.DEFAULT
+                    && currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.EOF) {
+                try {
+                    parseStatement();
+                    if (currentToken.getType() == TokenType.SEMICOLON) advance();
+                } catch (SyntaxException e) {
+                    reportError(e);
+                    recoverSwitchCase();
+                }
             }
         }
         match(TokenType.RBRACE);
@@ -422,7 +611,7 @@ public class Parser {
 
     private void parseForStatement() {
         match(TokenType.FOR);
-        
+
         if (currentToken.getType() == TokenType.LBRACE) {
             // Infinite loop: for { ... }
             parseBlock();
@@ -435,7 +624,8 @@ public class Parser {
         if (currentToken.getType() == TokenType.LBRACE) {
             // While loop: for x < 10 { ... }
             parseBlock();
-        } else if (currentToken.getType() == TokenType.DEFINE && tokens.get(currentTokenIndex + 1).getType() == TokenType.RANGE) {
+        } else if (currentToken.getType() == TokenType.DEFINE
+                && tokens.get(currentTokenIndex + 1).getType() == TokenType.RANGE) {
             // Range loop simplificado (ex: for k, v := range map)
             advance(); // :=
             match(TokenType.RANGE);
@@ -467,43 +657,49 @@ public class Parser {
     private void parseLogicalOr() {
         parseLogicalAnd();
         while (currentToken.getType() == TokenType.LOGICAL_OR) {
-            advance(); parseLogicalAnd();
+            advance();
+            parseLogicalAnd();
         }
     }
 
     private void parseLogicalAnd() {
         parseRelational();
         while (currentToken.getType() == TokenType.LOGICAL_AND) {
-            advance(); parseRelational();
+            advance();
+            parseRelational();
         }
     }
 
     private void parseRelational() {
         parseSum();
         while (isRelationalOperator(currentToken.getType())) {
-            advance(); parseSum();
+            advance();
+            parseSum();
         }
     }
 
     private void parseSum() {
         parseMult();
         while (currentToken.getType() == TokenType.PLUS || currentToken.getType() == TokenType.MINUS) {
-            advance(); parseMult();
+            advance();
+            parseMult();
         }
     }
 
     private void parseMult() {
         parseUnary();
-        while (currentToken.getType() == TokenType.MULTIPLY || currentToken.getType() == TokenType.DIVIDE || currentToken.getType() == TokenType.MOD) {
-            advance(); parseUnary();
+        while (currentToken.getType() == TokenType.MULTIPLY || currentToken.getType() == TokenType.DIVIDE
+                || currentToken.getType() == TokenType.MOD) {
+            advance();
+            parseUnary();
         }
     }
 
     private void parseUnary() {
         // Unários do Go: -, !, &, *, <- (receção de canal)
         TokenType type = currentToken.getType();
-        if (type == TokenType.MINUS || type == TokenType.LOGICAL_NOT || 
-            type == TokenType.BITWISE_AND || type == TokenType.MULTIPLY || type == TokenType.ARROW) {
+        if (type == TokenType.MINUS || type == TokenType.LOGICAL_NOT ||
+                type == TokenType.BITWISE_AND || type == TokenType.MULTIPLY || type == TokenType.ARROW) {
             advance();
             parseUnary();
         } else {
@@ -523,7 +719,7 @@ public class Parser {
             match(TokenType.RPAREN);
         } else if (type == TokenType.IDENTIFIER) {
             advance();
-            
+
             // Tratamento de encadeamentos: a.b()[0].c
             while (true) {
                 if (currentToken.getType() == TokenType.DOT) {
@@ -535,9 +731,12 @@ public class Parser {
                     match(TokenType.RPAREN);
                 } else if (currentToken.getType() == TokenType.LBRACKET) {
                     advance();
-                    if (currentToken.getType() != TokenType.COLON) parseExpression();
-                    if (currentToken.getType() == TokenType.COLON) advance(); // Slicing [1:3]
-                    if (currentToken.getType() != TokenType.RBRACKET) parseExpression();
+                    if (currentToken.getType() != TokenType.COLON)
+                        parseExpression();
+                    if (currentToken.getType() == TokenType.COLON)
+                        advance(); // Slicing [1:3]
+                    if (currentToken.getType() != TokenType.RBRACKET)
+                        parseExpression();
                     match(TokenType.RBRACKET);
                 } else {
                     break;
@@ -562,27 +761,31 @@ public class Parser {
 
     private boolean isRelationalOperator(TokenType type) {
         return type == TokenType.EQUAL || type == TokenType.NOT_EQUAL ||
-               type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
-               type == TokenType.LESS || type == TokenType.LESS_EQUAL;
+                type == TokenType.GREATER || type == TokenType.GREATER_EQUAL ||
+                type == TokenType.LESS || type == TokenType.LESS_EQUAL;
     }
 
     private boolean isAssignmentOperator(TokenType type) {
         return type == TokenType.ASSIGN || type == TokenType.DEFINE ||
-               type == TokenType.PLUS_ASSIGN || type == TokenType.MINUS_ASSIGN ||
-               type == TokenType.MULTIPLY_ASSIGN || type == TokenType.DIVIDE_ASSIGN ||
-               type == TokenType.MOD_ASSIGN || type == TokenType.AND_ASSIGN ||
-               type == TokenType.OR_ASSIGN || type == TokenType.XOR_ASSIGN ||
-               type == TokenType.LEFT_SHIFT_ASSIGN || type == TokenType.RIGHT_SHIFT_ASSIGN ||
-               type == TokenType.BIT_CLEAR_ASSIGN;
+                type == TokenType.PLUS_ASSIGN || type == TokenType.MINUS_ASSIGN ||
+                type == TokenType.MULTIPLY_ASSIGN || type == TokenType.DIVIDE_ASSIGN ||
+                type == TokenType.MOD_ASSIGN || type == TokenType.AND_ASSIGN ||
+                type == TokenType.OR_ASSIGN || type == TokenType.XOR_ASSIGN ||
+                type == TokenType.LEFT_SHIFT_ASSIGN || type == TokenType.RIGHT_SHIFT_ASSIGN ||
+                type == TokenType.BIT_CLEAR_ASSIGN;
     }
 
     private boolean isLiteral(TokenType type) {
         return type == TokenType.INT_LITERAL || type == TokenType.FLOAT_LITERAL ||
-               type == TokenType.STRING_LITERAL || type == TokenType.RAW_STRING_LITERAL ||
-               type == TokenType.TRUE || type == TokenType.FALSE;
+                type == TokenType.STRING_LITERAL || type == TokenType.RAW_STRING_LITERAL ||
+                type == TokenType.TRUE || type == TokenType.FALSE;
     }
 
-	public int getErrorLine() {
-		return errorLine;
-	}
+    public int getErrorLine() {
+        return errorLine;
+    }
+
+    public List<Integer> getErrorLines() {
+        return Collections.unmodifiableList(errorLines);
+    }
 }
