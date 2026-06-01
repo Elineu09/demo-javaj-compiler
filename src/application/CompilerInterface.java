@@ -10,6 +10,7 @@ import java.awt.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
@@ -40,6 +41,7 @@ public class CompilerInterface extends JFrame {
 
 	private Object currentLineHighlight;
 	private Object errorLineHighlight;
+	private List<Object> errorLineHighlights = new ArrayList<>();
 
 	// Lista de palavras-chave
 	private static final Set<String> KEYWORDS = new HashSet<>(List.of("break", "default", "func", "interface", "select",
@@ -269,6 +271,8 @@ public class CompilerInterface extends JFrame {
 
 	public void highlightError(int line) {
 
+		clearErrorHighlights();
+
 		try {
 
 			Highlighter highlighter = editorPane.getHighlighter();
@@ -297,6 +301,59 @@ public class CompilerInterface extends JFrame {
 			int endOffset = lineElement.getEndOffset();
 
 			errorLineHighlight = highlighter.addHighlight(startOffset, endOffset, errorLinePainter);
+
+		} catch (Exception ex) {
+
+			ex.printStackTrace();
+		}
+	}
+
+	private void clearErrorHighlights() {
+
+		try {
+
+			Highlighter highlighter = editorPane.getHighlighter();
+
+			if (errorLineHighlight != null) {
+				highlighter.removeHighlight(errorLineHighlight);
+				errorLineHighlight = null;
+			}
+
+			for (Object highlight : errorLineHighlights) {
+				highlighter.removeHighlight(highlight);
+			}
+
+			errorLineHighlights.clear();
+
+		} catch (Exception ex) {
+
+			ex.printStackTrace();
+		}
+	}
+
+	public void highlightErrors(List<Integer> lines) {
+
+		clearErrorHighlights();
+
+		try {
+
+			Element root = editorPane.getDocument().getDefaultRootElement();
+			Highlighter highlighter = editorPane.getHighlighter();
+
+			for (int line : lines) {
+
+				if (line <= 0 || line > root.getElementCount()) {
+					continue;
+				}
+
+				Element lineElement = root.getElement(line - 1);
+
+				int startOffset = lineElement.getStartOffset();
+				int endOffset = lineElement.getEndOffset();
+
+				Object highlight = highlighter.addHighlight(startOffset, endOffset, errorLinePainter);
+				errorLineHighlights.add(highlight);
+			}
 
 		} catch (Exception ex) {
 
@@ -359,6 +416,8 @@ public class CompilerInterface extends JFrame {
 
 	private void executeCompiler() {
 
+		clearErrorHighlights();
+
 		if (editorPane.getText().trim().isEmpty()) {
 
 			consoleArea.setText("O editor está vazio.");
@@ -383,7 +442,7 @@ public class CompilerInterface extends JFrame {
 			Parser parser = new Parser(lexer.getTokens());
 
 			parser.parse();
-			highlightError(parser.getErrorLine());
+			highlightErrors(parser.getErrorLines());
 
 		} catch (Exception ex) {
 
