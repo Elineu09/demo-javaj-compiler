@@ -2,26 +2,48 @@ package model.entities;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
+import model.ast.ArrayTypeNode;
+import model.ast.AssignStmtNode;
+import model.ast.BinaryExprNode;
+import model.ast.BlockNode;
+import model.ast.CallExprNode;
+import model.ast.CaseClauseNode;
+import model.ast.ChanTypeNode;
+import model.ast.DeclNode;
+import model.ast.ExprNode;
+import model.ast.ExprStmtNode;
+import model.ast.FieldAccessExprNode;
+import model.ast.ForStmtNode;
+import model.ast.FuncDeclNode;
+import model.ast.IdentifierExprNode;
+import model.ast.IfStmtNode;
+import model.ast.IncDecStmtNode;
+import model.ast.IndexExprNode;
+import model.ast.KeywordStmtNode;
+import model.ast.LiteralExprNode;
+import model.ast.MapTypeNode;
+import model.ast.MethodSigNode;
+import model.ast.NamedTypeNode;
+import model.ast.ParamNode;
+import model.ast.PointerTypeNode;
+import model.ast.ProgramNode;
+import model.ast.RangeForStmtNode;
+import model.ast.ReturnStmtNode;
+import model.ast.ShortVarDeclStmtNode;
+import model.ast.SliceExprNode;
+import model.ast.SliceTypeNode;
+import model.ast.StmtNode;
+import model.ast.SwitchStmtNode;
+import model.ast.TypeDeclNode;
+import model.ast.TypeNode;
+import model.ast.UnaryExprNode;
+import model.ast.VarDeclNode;
 import model.enums.TokenType;
 import model.exceptions.SyntaxException;
 
 public class Parser {
-
-    private static final String TYPE_UNKNOWN = "desconhecido";
-    private static final String TYPE_INFERRED = "inferido";
-    private static final String TYPE_BOOL = "bool";
-    private static final String TYPE_INT = "int";
-    private static final String TYPE_FLOAT = "float64";
-    private static final String TYPE_STRING = "string";
-    private static final String TYPE_RUNE = "rune";
-    private static final String TYPE_NIL = "nil";
-    private static final String TYPE_VOID = "void";
 
     private int errorLine = 0;
 
@@ -32,28 +54,9 @@ public class Parser {
     private int currentTokenIndex;
     private Token currentToken;
 
-    private Map<String, Symbol> symbolTable;
-    private int currentScopeLevel;
-    private int nextMemoryAddress;
-    private Set<String> importedPackages;
-
-    private static class Parameter {
-        private Token token;
-        private String type;
-
-        public Parameter(Token token, String type) {
-            this.token = token;
-            this.type = type;
-        }
-    }
-
     public Parser(List<Token> tokens) {
         this.tokens = tokens;
         this.currentTokenIndex = 0;
-        this.symbolTable = new HashMap<>();
-        this.currentScopeLevel = 0;
-        this.nextMemoryAddress = 0;
-        this.importedPackages = new HashSet<>();
         this.errors = new ArrayList<>();
         this.errorLines = new ArrayList<>();
 
@@ -88,12 +91,6 @@ public class Parser {
 
     private SyntaxException expected(TokenType expectedType) {
         return syntaxError("Esperado " + expectedType + ".");
-    }
-
-    private SyntaxException semanticError(Token token, String message) {
-        return new SyntaxException(
-                String.format("Erro Semantico [Linha %d, Coluna %d]. %s",
-                        token.getLine(), token.getColumn(), message));
     }
 
     private void validateToken() {
@@ -145,328 +142,6 @@ public class Parser {
         }
 
         return currentToken != null ? currentToken.getLine() : 0;
-    }
-
-    private String getSymbolKey(String name, int scopeLevel) {
-        return name + "#" + scopeLevel;
-    }
-
-    private Symbol lookupSymbol(String name) {
-        for (int level = currentScopeLevel; level >= 0; level--) {
-            Symbol symbol = symbolTable.get(getSymbolKey(name, level));
-            if (symbol != null) {
-                return symbol;
-            }
-        }
-
-        return null;
-    }
-
-    private boolean isDeclaredInCurrentScope(String name) {
-        return symbolTable.containsKey(getSymbolKey(name, currentScopeLevel));
-    }
-
-    private Symbol addSymbol(Token idToken, String type, String category, int scopeLevel, boolean isInitialized,
-            String assignedValue) {
-        String name = idToken.getValue();
-
-        if (symbolTable.containsKey(getSymbolKey(name, scopeLevel))) {
-            throw semanticError(idToken,
-                    String.format("O identificador '%s' ja foi declarado neste escopo.", name));
-        }
-
-        Symbol sym = new Symbol(name, normalizeType(type), category, scopeLevel, isInitialized, assignedValue);
-
-        if ("VAR".equals(category) || "CONST".equals(category) || "PARAM".equals(category)) {
-            sym.setMemoryAddress(nextMemoryAddress);
-            sym.setSizeInBytes(getSizeInBytes(type));
-            nextMemoryAddress += sym.getSizeInBytes();
-        }
-
-        symbolTable.put(getSymbolKey(name, scopeLevel), sym);
-        System.out.println("Tabela de Simbolos -> Adicionado: " + sym);
-        return sym;
-    }
-
-    private void removeSymbolsFromScope(int scopeLevel) {
-        symbolTable.entrySet().removeIf(entry -> entry.getValue().getScopeLevel() == scopeLevel);
-    }
-
-    private int getSizeInBytes(String type) {
-        String normalizedType = normalizeType(type);
-
-        if (TYPE_BOOL.equals(normalizedType) || "byte".equals(normalizedType)) {
-            return 1;
-        }
-
-        if ("int16".equals(normalizedType) || "uint16".equals(normalizedType)) {
-            return 2;
-        }
-
-        if ("int32".equals(normalizedType) || "uint32".equals(normalizedType)
-                || "float32".equals(normalizedType) || TYPE_RUNE.equals(normalizedType)) {
-            return 4;
-        }
-
-        if (isNumericType(normalizedType) || normalizedType.startsWith("*")
-                || TYPE_STRING.equals(normalizedType) || normalizedType.startsWith("slice_")
-                || normalizedType.startsWith("array_") || normalizedType.startsWith("map_")
-                || normalizedType.startsWith("chan_")) {
-            return 8;
-        }
-
-        return 0;
-    }
-
-    private String normalizeType(String type) {
-        if (type == null || type.isBlank()) {
-            return TYPE_UNKNOWN;
-        }
-
-        if ("float".equals(type)) {
-            return TYPE_FLOAT;
-        }
-
-        return type;
-    }
-
-    private boolean isPrimitiveType(String type) {
-        String normalizedType = normalizeType(type);
-
-        return TYPE_BOOL.equals(normalizedType)
-                || TYPE_STRING.equals(normalizedType)
-                || TYPE_RUNE.equals(normalizedType)
-                || "byte".equals(normalizedType)
-                || "error".equals(normalizedType)
-                || isNumericType(normalizedType);
-    }
-
-    private boolean isNumericType(String type) {
-        String normalizedType = normalizeType(type);
-
-        return TYPE_INT.equals(normalizedType)
-                || "int8".equals(normalizedType)
-                || "int16".equals(normalizedType)
-                || "int32".equals(normalizedType)
-                || "int64".equals(normalizedType)
-                || "uint".equals(normalizedType)
-                || "uint8".equals(normalizedType)
-                || "uint16".equals(normalizedType)
-                || "uint32".equals(normalizedType)
-                || "uint64".equals(normalizedType)
-                || "uintptr".equals(normalizedType)
-                || "float32".equals(normalizedType)
-                || TYPE_FLOAT.equals(normalizedType);
-    }
-
-    private boolean isIntegerType(String type) {
-        String normalizedType = normalizeType(type);
-
-        return TYPE_INT.equals(normalizedType)
-                || "int8".equals(normalizedType)
-                || "int16".equals(normalizedType)
-                || "int32".equals(normalizedType)
-                || "int64".equals(normalizedType)
-                || "uint".equals(normalizedType)
-                || "uint8".equals(normalizedType)
-                || "uint16".equals(normalizedType)
-                || "uint32".equals(normalizedType)
-                || "uint64".equals(normalizedType)
-                || "uintptr".equals(normalizedType)
-                || TYPE_RUNE.equals(normalizedType)
-                || "byte".equals(normalizedType);
-    }
-
-    private boolean isNumericOrUnknown(String type) {
-        String normalizedType = normalizeType(type);
-        return TYPE_UNKNOWN.equals(normalizedType) || isNumericType(normalizedType);
-    }
-
-    private boolean isIntegerOrUnknown(String type) {
-        String normalizedType = normalizeType(type);
-        return TYPE_UNKNOWN.equals(normalizedType) || isIntegerType(normalizedType);
-    }
-
-    private boolean isKnownType(String type) {
-        String normalizedType = normalizeType(type);
-
-        if (TYPE_UNKNOWN.equals(normalizedType) || TYPE_INFERRED.equals(normalizedType)
-                || TYPE_NIL.equals(normalizedType) || TYPE_VOID.equals(normalizedType)) {
-            return true;
-        }
-
-        if (isPrimitiveType(normalizedType)) {
-            return true;
-        }
-
-        if (normalizedType.startsWith("*")) {
-            return isKnownType(normalizedType.substring(1));
-        }
-
-        if (normalizedType.startsWith("slice_")) {
-            return isKnownType(normalizedType.substring("slice_".length()));
-        }
-
-        if (normalizedType.startsWith("array_")) {
-            return isKnownType(normalizedType.substring("array_".length()));
-        }
-
-        if (normalizedType.startsWith("map_")) {
-            return isKnownType(normalizedType.substring("map_".length()));
-        }
-
-        if (normalizedType.startsWith("chan_")) {
-            return isKnownType(normalizedType.substring("chan_".length()));
-        }
-
-        Symbol symbol = lookupSymbol(normalizedType);
-        return symbol != null && "TYPE".equals(symbol.getCategory());
-    }
-
-    private boolean areTypesCompatible(String expectedType, String actualType) {
-        String expected = normalizeType(expectedType);
-        String actual = normalizeType(actualType);
-
-        if (TYPE_UNKNOWN.equals(expected) || TYPE_UNKNOWN.equals(actual)
-                || TYPE_INFERRED.equals(expected) || TYPE_INFERRED.equals(actual)) {
-            return true;
-        }
-
-        if (expected.equals(actual)) {
-            return true;
-        }
-
-        if (TYPE_NIL.equals(actual) && (expected.startsWith("*")
-                || expected.startsWith("slice_") || expected.startsWith("map_")
-                || expected.startsWith("chan_") || "interface".equals(expected))) {
-            return true;
-        }
-
-        return (("float32".equals(expected) || TYPE_FLOAT.equals(expected)) && isIntegerType(actual));
-    }
-
-    private void validateAssignmentTypes(Token token, String expectedType, String actualType) {
-        if (!areTypesCompatible(expectedType, actualType)) {
-            throw semanticError(token,
-                    String.format("Tipo incompativel: esperado '%s', recebido '%s'.",
-                            normalizeType(expectedType), normalizeType(actualType)));
-        }
-    }
-
-    private String combineNumericTypes(Token operatorToken, String leftType, String rightType) {
-        if (!isNumericOrUnknown(leftType) || !isNumericOrUnknown(rightType)) {
-            throw semanticError(operatorToken,
-                    String.format("Operador '%s' exige operandos numericos.", operatorToken.getValue()));
-        }
-
-        if (TYPE_UNKNOWN.equals(normalizeType(leftType))) {
-            return normalizeType(rightType);
-        }
-        if (TYPE_UNKNOWN.equals(normalizeType(rightType))) {
-            return normalizeType(leftType);
-        }
-
-        if (TYPE_FLOAT.equals(normalizeType(leftType)) || TYPE_FLOAT.equals(normalizeType(rightType))
-                || "float32".equals(normalizeType(leftType)) || "float32".equals(normalizeType(rightType))) {
-            return TYPE_FLOAT;
-        }
-
-        return normalizeType(leftType);
-    }
-
-    private void validateBoolExpression(Token token, String expressionType, String context) {
-        if (!TYPE_BOOL.equals(normalizeType(expressionType)) && !TYPE_UNKNOWN.equals(normalizeType(expressionType))) {
-            reportError(semanticError(token,
-                    String.format("A expressao do %s deve ser do tipo bool, mas recebeu '%s'.",
-                            context, normalizeType(expressionType))));
-        }
-    }
-
-    private void validateCaseType(Token token, String switchType, String caseType) {
-        if (!areTypesCompatible(switchType, caseType) && !areTypesCompatible(caseType, switchType)) {
-            reportError(semanticError(token,
-                    String.format("Tipo do case incompativel: esperado '%s', recebido '%s'.",
-                            normalizeType(switchType), normalizeType(caseType))));
-        }
-    }
-
-    private void validateRangeableExpression(Token token, String expressionType) {
-        String normalizedType = normalizeType(expressionType);
-        boolean isIterable = TYPE_STRING.equals(normalizedType)
-                || normalizedType.startsWith("slice_") || normalizedType.startsWith("array_")
-                || normalizedType.startsWith("map_") || normalizedType.startsWith("chan_")
-                || TYPE_UNKNOWN.equals(normalizedType) || TYPE_INFERRED.equals(normalizedType);
-
-        if (!isIterable) {
-            reportError(semanticError(token,
-                    String.format("A expressao do range deve ser iteravel (slice, array, map, string ou chan), mas recebeu '%s'.",
-                            normalizedType)));
-        }
-    }
-
-    private List<String> getParameterTypes(List<Parameter> parameters) {
-        List<String> parameterTypes = new ArrayList<>();
-
-        for (Parameter parameter : parameters) {
-            parameterTypes.add(parameter.type);
-        }
-
-        return parameterTypes;
-    }
-
-    private boolean isBuiltInFunction(String name) {
-        return "print".equals(name) || "println".equals(name) || "len".equals(name)
-                || "cap".equals(name) || "append".equals(name) || "make".equals(name)
-                || "new".equals(name);
-    }
-
-    private String getBuiltInFunctionReturnType(String name, List<String> argumentTypes) {
-        if ("len".equals(name) || "cap".equals(name)) {
-            return TYPE_INT;
-        }
-
-        if ("append".equals(name) && !argumentTypes.isEmpty()) {
-            return argumentTypes.get(0);
-        }
-
-        if ("new".equals(name) && !argumentTypes.isEmpty()) {
-            return "*" + argumentTypes.get(0);
-        }
-
-        if ("make".equals(name) && !argumentTypes.isEmpty()) {
-            return argumentTypes.get(0);
-        }
-
-        return TYPE_VOID;
-    }
-
-    private String validateFunctionCall(Token functionToken, Symbol functionSymbol, List<String> argumentTypes) {
-        if (functionSymbol == null || !"FUNC".equals(functionSymbol.getCategory())) {
-            throw semanticError(functionToken,
-                    String.format("O identificador '%s' nao e uma funcao.", functionToken.getValue()));
-        }
-
-        List<String> parameterTypes = functionSymbol.getParameterTypes();
-        if (parameterTypes.size() != argumentTypes.size()) {
-            throw semanticError(functionToken,
-                    String.format("A funcao '%s' espera %d argumento(s), mas recebeu %d.",
-                            functionToken.getValue(), parameterTypes.size(), argumentTypes.size()));
-        }
-
-        for (int i = 0; i < parameterTypes.size(); i++) {
-            if (!areTypesCompatible(parameterTypes.get(i), argumentTypes.get(i))) {
-                throw semanticError(functionToken,
-                        String.format("Argumento %d da funcao '%s' deve ser '%s', mas recebeu '%s'.",
-                                i + 1, functionToken.getValue(), normalizeType(parameterTypes.get(i)),
-                                normalizeType(argumentTypes.get(i))));
-            }
-        }
-
-        if (functionSymbol.getReturnTypes().isEmpty()) {
-            return TYPE_VOID;
-        }
-
-        return functionSymbol.getReturnTypes().get(0);
     }
 
     private void recoverDeclaration() {
@@ -570,59 +245,67 @@ public class Parser {
         }
     }
 
-    public void parse() {
-        try {
-            parseProgram();
-        } catch (SyntaxException e) {
-            reportError(e);
-            recoverDeclaration();
-        }
+    public ProgramNode parse() {
+        ProgramNode program = parseProgram();
 
         if (errors.isEmpty()) {
-            System.out.println("\nAnalise Sintatica e Semantica concluida com sucesso!\n");
+            System.out.println("\nAnalise Sintatica concluida com sucesso!\n");
         } else {
-            System.out.println("\nForam encontrados " + errors.size() + " erros.\n");
+            System.out.println("\nForam encontrados " + errors.size() + " erros sintaticos.\n");
             errors.forEach(System.err::println);
         }
+
+        return program;
     }
 
-    private void parseProgram() {
+    private ProgramNode parseProgram() {
+        String packageName = null;
         try {
             match(TokenType.PACKAGE);
-            match(TokenType.IDENTIFIER);
+            packageName = match(TokenType.IDENTIFIER).getValue();
         } catch (SyntaxException e) {
             reportError(e);
             recoverDeclaration();
         }
 
-        parseImports();
-        parseTopLevelDeclarations();
+        List<String> imports = parseImports();
+        List<DeclNode> declarations = parseTopLevelDeclarations();
 
-        match(TokenType.EOF);
+        try {
+            match(TokenType.EOF);
+        } catch (SyntaxException e) {
+            reportError(e);
+        }
+
+        return new ProgramNode(packageName, imports, declarations);
     }
 
-    private void parseImports() {
+    private List<String> parseImports() {
+        List<String> imports = new ArrayList<>();
+
         while (currentToken.getType() == TokenType.IMPORT) {
             try {
                 advance();
                 if (currentToken.getType() == TokenType.LPAREN) {
                     advance();
                     while (currentToken.getType() == TokenType.STRING_LITERAL) {
-                        registerImportedPackage(currentToken);
+                        addImportName(imports, currentToken);
                         advance();
                     }
                     match(TokenType.RPAREN);
                 } else {
-                    registerImportedPackage(match(TokenType.STRING_LITERAL));
+                    addImportName(imports, match(TokenType.STRING_LITERAL));
                 }
             } catch (SyntaxException e) {
                 reportError(e);
                 recoverDeclaration();
             }
         }
+
+        return imports;
     }
 
-    private void registerImportedPackage(Token importToken) {
+    private void addImportName(List<String> imports, Token importToken) {
         String value = importToken.getValue().replace("\"", "").replace("`", "");
         if (value.isBlank()) {
             return;
@@ -633,10 +316,12 @@ public class Parser {
             value = value.substring(slashIndex + 1);
         }
 
-        importedPackages.add(value);
+        imports.add(value);
     }
 
-    private void parseTopLevelDeclarations() {
+    private List<DeclNode> parseTopLevelDeclarations() {
+        List<DeclNode> declarations = new ArrayList<>();
+
         while (currentToken.getType() != TokenType.EOF) {
             try {
                 if (currentToken.getType() == TokenType.SEMICOLON) {
@@ -646,11 +331,11 @@ public class Parser {
 
                 TokenType type = currentToken.getType();
                 if (type == TokenType.VAR || type == TokenType.CONST) {
-                    parseVarOrConstDeclaration();
+                    declarations.add(parseVarOrConstDeclaration());
                 } else if (type == TokenType.TYPE) {
-                    parseTypeDeclaration();
+                    declarations.add(parseTypeDeclaration());
                 } else if (type == TokenType.FUNC) {
-                    parseFuncDeclaration();
+                    declarations.add(parseFuncDeclaration());
                 } else {
                     throw syntaxError("Declaracao de topo invalida.");
                 }
@@ -659,162 +344,122 @@ public class Parser {
                 recoverDeclaration();
             }
         }
+
+        return declarations;
     }
 
-    private void parseVarOrConstDeclaration() {
+    private VarDeclNode parseVarOrConstDeclaration() {
         boolean isConst = currentToken.getType() == TokenType.CONST;
         advance();
 
         Token idToken = match(TokenType.IDENTIFIER);
-        String typeStr = TYPE_INFERRED;
-        String assignedVal = null;
-        String expressionType = TYPE_UNKNOWN;
+        TypeNode declaredType = null;
 
         if (currentToken.getType() != TokenType.ASSIGN) {
-            typeStr = parseType();
+            declaredType = parseType();
         }
 
-        boolean isInitialized = false;
+        ExprNode initializer = null;
         if (currentToken.getType() == TokenType.ASSIGN) {
-            isInitialized = true;
             advance();
-
-            int exprStartIndex = currentTokenIndex;
-            expressionType = parseExpression();
-            int exprEndIndex = currentTokenIndex;
-            assignedVal = buildExpressionText(exprStartIndex, exprEndIndex);
+            initializer = parseExpression();
         }
 
-        if (TYPE_INFERRED.equals(typeStr)) {
-            if (!isInitialized) {
-                throw semanticError(idToken,
-                        String.format("Nao foi possivel inferir o tipo de '%s'.", idToken.getValue()));
-            }
-            typeStr = expressionType;
-        } else if (isInitialized) {
-            validateAssignmentTypes(idToken, typeStr, expressionType);
-        }
-
-        addSymbol(idToken, typeStr, isConst ? "CONST" : "VAR", currentScopeLevel, isInitialized, assignedVal);
+        return new VarDeclNode(idToken, declaredType, initializer, isConst);
     }
 
-    private String buildExpressionText(int startIndex, int endIndex) {
-        StringBuilder exprBuilder = new StringBuilder();
-
-        for (int i = startIndex; i < endIndex; i++) {
-            if (i < tokens.size()) {
-                exprBuilder.append(tokens.get(i).getValue());
-
-                if (i < endIndex - 1
-                        && !isPunctuation(tokens.get(i).getType())
-                        && !isPunctuation(tokens.get(i + 1).getType())) {
-                    exprBuilder.append(" ");
-                }
-            }
-        }
-
-        return exprBuilder.toString().trim();
-    }
-
-    private boolean isPunctuation(TokenType type) {
-        return type == TokenType.DOT || type == TokenType.COMMA || type == TokenType.SEMICOLON
-                || type == TokenType.LPAREN || type == TokenType.RPAREN
-                || type == TokenType.LBRACKET || type == TokenType.RBRACKET
-                || type == TokenType.LBRACE || type == TokenType.RBRACE
-                || type == TokenType.COLON || type == TokenType.ASSIGN
-                || type == TokenType.DEFINE || type == TokenType.PLUS_ASSIGN
-                || type == TokenType.MINUS || type == TokenType.PLUS
-                || type == TokenType.MULTIPLY || type == TokenType.DIVIDE || type == TokenType.MOD
-                || type == TokenType.EQUAL || type == TokenType.NOT_EQUAL
-                || type == TokenType.GREATER || type == TokenType.GREATER_EQUAL
-                || type == TokenType.LESS || type == TokenType.LESS_EQUAL
-                || type == TokenType.LOGICAL_AND || type == TokenType.LOGICAL_OR
-                || type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND
-                || type == TokenType.ARROW || type == TokenType.INCREMENT || type == TokenType.DECREMENT;
-    }
-
-    private void parseTypeDeclaration() {
+    private TypeDeclNode parseTypeDeclaration() {
         match(TokenType.TYPE);
         Token idToken = match(TokenType.IDENTIFIER);
 
         if (currentToken.getType() == TokenType.STRUCT) {
             advance();
             match(TokenType.LBRACE);
+            List<TypeNode> fieldTypes = new ArrayList<>();
             while (currentToken.getType() == TokenType.IDENTIFIER) {
                 advance();
-                parseType();
+                fieldTypes.add(parseType());
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken, "struct", "TYPE", currentScopeLevel, false, null);
+            return new TypeDeclNode(idToken, TypeDeclNode.TypeDeclKind.STRUCT, fieldTypes, null, null);
         } else if (currentToken.getType() == TokenType.INTERFACE) {
             advance();
             match(TokenType.LBRACE);
+            List<MethodSigNode> methods = new ArrayList<>();
             while (currentToken.getType() == TokenType.IDENTIFIER) {
                 advance();
                 match(TokenType.LPAREN);
-                parseOptionalParameters();
+                List<ParamNode> params = parseOptionalParameters();
                 match(TokenType.RPAREN);
+
+                List<TypeNode> returnTypes = new ArrayList<>();
                 if (currentToken.getType() != TokenType.RBRACE) {
-                    parseFuncReturnTypes();
+                    returnTypes = parseFuncReturnTypes();
                 }
+
+                List<TypeNode> paramTypes = new ArrayList<>();
+                for (ParamNode param : params) {
+                    paramTypes.add(param.getType());
+                }
+                methods.add(new MethodSigNode(paramTypes, returnTypes));
             }
             match(TokenType.RBRACE);
-            addSymbol(idToken, "interface", "TYPE", currentScopeLevel, false, null);
+            return new TypeDeclNode(idToken, TypeDeclNode.TypeDeclKind.INTERFACE, null, methods, null);
         } else {
-            parseType();
-            addSymbol(idToken, "alias", "TYPE", currentScopeLevel, false, null);
+            TypeNode aliasedType = parseType();
+            return new TypeDeclNode(idToken, TypeDeclNode.TypeDeclKind.ALIAS, null, null, aliasedType);
         }
     }
 
-    private void parseFuncDeclaration() {
+    private FuncDeclNode parseFuncDeclaration() {
         match(TokenType.FUNC);
 
+        Token receiverNameToken = null;
+        TypeNode receiverType = null;
         if (currentToken.getType() == TokenType.LPAREN) {
             advance();
-            match(TokenType.IDENTIFIER);
-            parseType();
+            receiverNameToken = match(TokenType.IDENTIFIER);
+            receiverType = parseType();
             match(TokenType.RPAREN);
         }
 
         Token idToken = match(TokenType.IDENTIFIER);
-        Symbol functionSymbol = addSymbol(idToken, "func", "FUNC", currentScopeLevel, false, null);
 
         match(TokenType.LPAREN);
-        List<Parameter> parameters = parseOptionalParameters();
+        List<ParamNode> params = parseOptionalParameters();
         match(TokenType.RPAREN);
 
-        List<String> returnTypes = new ArrayList<>();
+        List<TypeNode> returnTypes = new ArrayList<>();
         if (currentToken.getType() != TokenType.LBRACE) {
             returnTypes = parseFuncReturnTypes();
         }
 
-        functionSymbol.setParameterTypes(getParameterTypes(parameters));
-        functionSymbol.setReturnTypes(returnTypes);
+        BlockNode body = parseBlock();
 
-        parseBlock(parameters);
+        return new FuncDeclNode(receiverNameToken, receiverType, idToken, params, returnTypes, body);
     }
 
-    private List<Parameter> parseOptionalParameters() {
-        List<Parameter> parameters = new ArrayList<>();
+    private List<ParamNode> parseOptionalParameters() {
+        List<ParamNode> parameters = new ArrayList<>();
 
         if (currentToken.getType() == TokenType.IDENTIFIER) {
             Token parameterToken = match(TokenType.IDENTIFIER);
-            String parameterType = parseType();
-            parameters.add(new Parameter(parameterToken, parameterType));
+            TypeNode parameterType = parseType();
+            parameters.add(new ParamNode(parameterToken, parameterType));
 
             while (currentToken.getType() == TokenType.COMMA) {
                 advance();
                 parameterToken = match(TokenType.IDENTIFIER);
                 parameterType = parseType();
-                parameters.add(new Parameter(parameterToken, parameterType));
+                parameters.add(new ParamNode(parameterToken, parameterType));
             }
         }
 
         return parameters;
     }
 
-    private List<String> parseFuncReturnTypes() {
-        List<String> returnTypes = new ArrayList<>();
+    private List<TypeNode> parseFuncReturnTypes() {
+        List<TypeNode> returnTypes = new ArrayList<>();
 
         if (currentToken.getType() == TokenType.LPAREN) {
             advance();
@@ -831,60 +476,42 @@ public class Parser {
         return returnTypes;
     }
 
-    private String parseType() {
+    private TypeNode parseType() {
         if (currentToken.getType() == TokenType.MULTIPLY) {
             advance();
-            return "*" + parseType();
+            return new PointerTypeNode(parseType());
         } else if (currentToken.getType() == TokenType.LBRACKET) {
             advance();
             if (currentToken.getType() == TokenType.RBRACKET) {
                 advance();
-                return "slice_" + parseType();
+                return new SliceTypeNode(parseType());
             } else {
-                String dimensionType = parseExpression();
-                if (!isIntegerType(dimensionType) && !TYPE_UNKNOWN.equals(normalizeType(dimensionType))) {
-                    throw semanticError(currentToken, "A dimensao do array deve ser inteira.");
-                }
+                ExprNode dimension = parseExpression();
                 match(TokenType.RBRACKET);
-                return "array_" + parseType();
+                return new ArrayTypeNode(dimension, parseType());
             }
         } else if (currentToken.getType() == TokenType.MAP) {
             advance();
             match(TokenType.LBRACKET);
-            parseType();
+            TypeNode keyType = parseType();
             match(TokenType.RBRACKET);
-            return "map_" + parseType();
+            return new MapTypeNode(keyType, parseType());
         } else if (currentToken.getType() == TokenType.CHAN) {
             advance();
-            return "chan_" + parseType();
+            return new ChanTypeNode(parseType());
         } else {
             Token typeToken = match(TokenType.IDENTIFIER);
-            String parsedType = normalizeType(typeToken.getValue());
-
-            if (!isKnownType(parsedType)) {
-                throw semanticError(typeToken,
-                        String.format("Tipo '%s' nao declarado.", typeToken.getValue()));
-            }
-
-            return parsedType;
+            return new NamedTypeNode(typeToken);
         }
     }
 
-    private void parseBlock() {
-        parseBlock(new ArrayList<>());
-    }
-
-    private void parseBlock(List<Parameter> parameters) {
+    private BlockNode parseBlock() {
         match(TokenType.LBRACE);
-        currentScopeLevel++;
-
-        for (Parameter parameter : parameters) {
-            addSymbol(parameter.token, parameter.type, "PARAM", currentScopeLevel, true, null);
-        }
+        List<StmtNode> statements = new ArrayList<>();
 
         while (currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.EOF) {
             try {
-                parseStatement();
+                statements.add(parseStatement());
                 if (currentToken.getType() == TokenType.SEMICOLON) {
                     advance();
                 }
@@ -895,53 +522,61 @@ public class Parser {
         }
 
         match(TokenType.RBRACE);
-        removeSymbolsFromScope(currentScopeLevel);
-        currentScopeLevel--;
+        return new BlockNode(statements);
     }
 
-    private void parseStatement() {
+    private StmtNode parseStatement() {
         validateToken();
         TokenType type = currentToken.getType();
 
         if (type == TokenType.VAR || type == TokenType.CONST) {
-            parseVarOrConstDeclaration();
+            return parseVarOrConstDeclaration();
         } else if (type == TokenType.IF) {
-            parseIfStatement();
+            return parseIfStatement();
         } else if (type == TokenType.FOR) {
-            parseForStatement();
+            return parseForStatement();
         } else if (type == TokenType.SWITCH) {
-            parseSwitchStatement();
+            return parseSwitchStatement();
         } else if (type == TokenType.RETURN) {
-            parseReturnStatement();
+            return parseReturnStatement();
         } else if (type == TokenType.BREAK || type == TokenType.CONTINUE || type == TokenType.FALLTHROUGH) {
+            Token keywordToken = currentToken;
             advance();
+            return new KeywordStmtNode(keywordToken);
         } else if (type == TokenType.GO || type == TokenType.DEFER) {
+            Token keywordToken = currentToken;
             advance();
-            parseExpression();
+            ExprNode expr = parseExpression();
+            return new ExprStmtNode(keywordToken, expr);
         } else if (type == TokenType.ELSE) {
             throw syntaxError("'else' sem um 'if' correspondente.");
         } else if (type == TokenType.IDENTIFIER) {
-            parseIdentifierStatement();
+            return parseIdentifierStatement();
         } else if (type == TokenType.MULTIPLY) {
-            String leftType = parseExpression();
-            parsePossibleAssignment(leftType, currentToken);
+            ExprNode baseExpr = parseExpression();
+            return parseStatementTail(baseExpr);
         } else {
-            parseExpression();
+            return new ExprStmtNode(null, parseExpression());
         }
     }
 
-    private void parseReturnStatement() {
+    private ReturnStmtNode parseReturnStatement() {
+        Token returnToken = currentToken;
         advance();
+
+        List<ExprNode> values = new ArrayList<>();
         if (currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.SEMICOLON) {
-            parseExpression();
+            values.add(parseExpression());
             while (currentToken.getType() == TokenType.COMMA) {
                 advance();
-                parseExpression();
+                values.add(parseExpression());
             }
         }
+
+        return new ReturnStmtNode(returnToken, values);
     }
 
-    private void parseIdentifierStatement() {
+    private StmtNode parseIdentifierStatement() {
         Token idToken = currentToken;
         TokenType nextType = peekType(1);
 
@@ -949,59 +584,39 @@ public class Parser {
             advance();
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseExpression();
+            ExprNode valueExpr = parseExpression();
 
             if (operatorToken.getType() == TokenType.DEFINE) {
-                if (isDeclaredInCurrentScope(idToken.getValue())) {
-                    throw semanticError(idToken,
-                            String.format("O identificador '%s' ja foi declarado neste escopo.", idToken.getValue()));
-                }
-                addSymbol(idToken, rightType, "VAR", currentScopeLevel, true, null);
-            } else {
-                Symbol symbol = lookupSymbol(idToken.getValue());
-                if (symbol == null) {
-                    throw semanticError(idToken,
-                            String.format("Variavel '%s' nao declarada.", idToken.getValue()));
-                }
-
-                validateAssignmentOperator(operatorToken, symbol.getType(), rightType);
-                symbol.setInitialized(true);
+                return new ShortVarDeclStmtNode(idToken, valueExpr);
             }
-            return;
+
+            return new AssignStmtNode(new IdentifierExprNode(idToken), operatorToken, valueExpr);
         }
 
         if (nextType == TokenType.INCREMENT || nextType == TokenType.DECREMENT) {
-            Symbol symbol = lookupSymbol(idToken.getValue());
-            if (symbol == null) {
-                throw semanticError(idToken,
-                        String.format("Variavel '%s' nao declarada.", idToken.getValue()));
-            }
-            if (!isNumericOrUnknown(symbol.getType())) {
-                throw semanticError(idToken,
-                        String.format("Operador '%s' exige variavel numerica.", tokens.get(currentTokenIndex + 1).getValue()));
-            }
             advance();
+            Token operatorToken = currentToken;
             advance();
-            return;
+            return new IncDecStmtNode(new IdentifierExprNode(idToken), operatorToken);
         }
 
-        String leftType = parseExpression();
-        parsePossibleAssignment(leftType, idToken);
+        ExprNode baseExpr = parseExpression();
+        return parseStatementTail(baseExpr);
     }
 
-    private void parsePossibleAssignment(String leftType, Token leftToken) {
+    private StmtNode parseStatementTail(ExprNode baseExpr) {
         if (isAssignmentOperator(currentToken.getType())) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseExpression();
-            validateAssignmentOperator(operatorToken, leftType, rightType);
+            ExprNode valueExpr = parseExpression();
+            return new AssignStmtNode(baseExpr, operatorToken, valueExpr);
         } else if (currentToken.getType() == TokenType.INCREMENT || currentToken.getType() == TokenType.DECREMENT) {
-            if (!isNumericOrUnknown(leftType)) {
-                throw semanticError(leftToken,
-                        String.format("Operador '%s' exige variavel numerica.", currentToken.getValue()));
-            }
+            Token operatorToken = currentToken;
             advance();
+            return new IncDecStmtNode(baseExpr, operatorToken);
         }
+
+        return new ExprStmtNode(null, baseExpr);
     }
 
     private boolean isDirectAssignmentOperator(TokenType type) {
@@ -1014,65 +629,51 @@ public class Parser {
                 || type == TokenType.BIT_CLEAR_ASSIGN;
     }
 
-    private void validateAssignmentOperator(Token operatorToken, String leftType, String rightType) {
-        if (operatorToken.getType() == TokenType.DEFINE) {
-            return;
-        }
-
-        validateAssignmentTypes(operatorToken, leftType, rightType);
-
-        if (operatorToken.getType() != TokenType.ASSIGN) {
-            if (operatorToken.getType() == TokenType.PLUS_ASSIGN && TYPE_STRING.equals(normalizeType(leftType))) {
-                return;
-            }
-
-            if (!isNumericOrUnknown(leftType) || !isNumericOrUnknown(rightType)) {
-                throw semanticError(operatorToken,
-                        String.format("Operador '%s' exige operandos numericos.", operatorToken.getValue()));
-            }
-        }
-    }
-
-    private void parseIfStatement() {
+    private IfStmtNode parseIfStatement() {
         Token ifToken = match(TokenType.IF);
-        String conditionType = parseExpression();
-        validateBoolExpression(ifToken, conditionType, "if");
-        parseBlock();
+        ExprNode condition = parseExpression();
+        BlockNode thenBlock = parseBlock();
 
+        StmtNode elseBranch = null;
         if (currentToken.getType() == TokenType.ELSE) {
             advance();
             if (currentToken.getType() == TokenType.IF) {
-                parseIfStatement();
+                elseBranch = parseIfStatement();
             } else {
-                parseBlock();
+                elseBranch = parseBlock();
             }
         }
+
+        return new IfStmtNode(ifToken, condition, thenBlock, elseBranch);
     }
 
-    private void parseSwitchStatement() {
-        match(TokenType.SWITCH);
-        String switchType = TYPE_BOOL;
+    private SwitchStmtNode parseSwitchStatement() {
+        Token switchToken = match(TokenType.SWITCH);
+        ExprNode tagExpr = null;
         if (currentToken.getType() != TokenType.LBRACE) {
-            switchType = parseExpression();
+            tagExpr = parseExpression();
         }
         match(TokenType.LBRACE);
 
+        List<CaseClauseNode> cases = new ArrayList<>();
         while (currentToken.getType() == TokenType.CASE || currentToken.getType() == TokenType.DEFAULT) {
-            if (currentToken.getType() == TokenType.CASE) {
+            List<ExprNode> values = new ArrayList<>();
+            boolean isDefault = currentToken.getType() == TokenType.DEFAULT;
+
+            if (!isDefault) {
                 advance();
-                Token caseToken = currentToken;
-                String caseType = parseExpression();
-                validateCaseType(caseToken, switchType, caseType);
+                values.add(parseExpression());
                 match(TokenType.COLON);
             } else {
                 advance();
                 match(TokenType.COLON);
             }
 
+            List<StmtNode> body = new ArrayList<>();
             while (currentToken.getType() != TokenType.CASE && currentToken.getType() != TokenType.DEFAULT
                     && currentToken.getType() != TokenType.RBRACE && currentToken.getType() != TokenType.EOF) {
                 try {
-                    parseStatement();
+                    body.add(parseStatement());
                     if (currentToken.getType() == TokenType.SEMICOLON) {
                         advance();
                     }
@@ -1081,57 +682,52 @@ public class Parser {
                     recoverSwitchCase();
                 }
             }
+
+            cases.add(new CaseClauseNode(values, isDefault, body));
         }
         match(TokenType.RBRACE);
+
+        return new SwitchStmtNode(switchToken, tagExpr, cases);
     }
 
-    private void parseForStatement() {
+    private StmtNode parseForStatement() {
         Token forToken = match(TokenType.FOR);
 
         if (currentToken.getType() == TokenType.LBRACE) {
-            parseBlock();
-            return;
+            BlockNode body = parseBlock();
+            return new ForStmtNode(forToken, null, null, null, body);
         }
 
         if (isRangeForStart()) {
-            parseRangeForStatement();
-            return;
+            return parseRangeForStatement();
         }
 
         if (currentToken.getType() == TokenType.SEMICOLON) {
             advance();
-            String conditionType = parseExpression();
-            validateBoolExpression(forToken, conditionType, "for");
+            ExprNode condition = parseExpression();
             match(TokenType.SEMICOLON);
-            parseStatement();
-            parseBlock();
-            return;
+            StmtNode post = parseStatement();
+            BlockNode body = parseBlock();
+            return new ForStmtNode(forToken, null, condition, post, body);
         }
 
         if (currentToken.getType() == TokenType.IDENTIFIER && isDirectAssignmentOperator(peekType(1))) {
-            currentScopeLevel++;
-            try {
-                parseIdentifierStatement();
-                if (currentToken.getType() != TokenType.SEMICOLON) {
-                    throw syntaxError("Declaracao 'for' invalida ou faltando ';'.");
-                }
-
-                advance();
-                String conditionType = parseExpression();
-                validateBoolExpression(forToken, conditionType, "for");
-                match(TokenType.SEMICOLON);
-                parseStatement();
-                parseBlock();
-            } finally {
-                removeSymbolsFromScope(currentScopeLevel);
-                currentScopeLevel--;
+            StmtNode init = parseIdentifierStatement();
+            if (currentToken.getType() != TokenType.SEMICOLON) {
+                throw syntaxError("Declaracao 'for' invalida ou faltando ';'.");
             }
-            return;
+
+            advance();
+            ExprNode condition = parseExpression();
+            match(TokenType.SEMICOLON);
+            StmtNode post = parseStatement();
+            BlockNode body = parseBlock();
+            return new ForStmtNode(forToken, init, condition, post, body);
         }
 
-        String conditionType = parseExpression();
-        validateBoolExpression(forToken, conditionType, "for");
-        parseBlock();
+        ExprNode condition = parseExpression();
+        BlockNode body = parseBlock();
+        return new ForStmtNode(forToken, null, condition, null, body);
     }
 
     private boolean isRangeForStart() {
@@ -1143,14 +739,13 @@ public class Parser {
                         && peekType(3) == TokenType.DEFINE && peekType(4) == TokenType.RANGE);
     }
 
-    private void parseRangeForStatement() {
+    private RangeForStmtNode parseRangeForStatement() {
         if (currentToken.getType() == TokenType.RANGE) {
             Token rangeToken = currentToken;
             advance();
-            String rangeType = parseExpression();
-            validateRangeableExpression(rangeToken, rangeType);
-            parseBlock();
-            return;
+            ExprNode rangeExpr = parseExpression();
+            BlockNode body = parseBlock();
+            return new RangeForStmtNode(rangeToken, null, null, rangeExpr, body);
         }
 
         Token firstToken = match(TokenType.IDENTIFIER);
@@ -1163,188 +758,98 @@ public class Parser {
 
         match(TokenType.DEFINE);
         Token rangeToken = match(TokenType.RANGE);
-        String rangeType = parseExpression();
-        validateRangeableExpression(rangeToken, rangeType);
+        ExprNode rangeExpr = parseExpression();
+        BlockNode body = parseBlock();
 
-        currentScopeLevel++;
-        try {
-            if (isDeclaredInCurrentScope(firstToken.getValue())) {
-                throw semanticError(firstToken,
-                        String.format("O identificador '%s' ja foi declarado neste escopo.", firstToken.getValue()));
-            }
-            addSymbol(firstToken, TYPE_UNKNOWN, "VAR", currentScopeLevel, true, null);
-
-            if (secondToken != null) {
-                if (isDeclaredInCurrentScope(secondToken.getValue())) {
-                    throw semanticError(secondToken,
-                            String.format("O identificador '%s' ja foi declarado neste escopo.", secondToken.getValue()));
-                }
-                addSymbol(secondToken, TYPE_UNKNOWN, "VAR", currentScopeLevel, true, null);
-            }
-
-            parseBlock();
-        } finally {
-            removeSymbolsFromScope(currentScopeLevel);
-            currentScopeLevel--;
-        }
+        return new RangeForStmtNode(rangeToken, firstToken, secondToken, rangeExpr, body);
     }
 
-    private String parseExpression() {
+    private ExprNode parseExpression() {
         return parseLogicalOr();
     }
 
-    private String parseLogicalOr() {
-        String leftType = parseLogicalAnd();
+    private ExprNode parseLogicalOr() {
+        ExprNode left = parseLogicalAnd();
         while (currentToken.getType() == TokenType.LOGICAL_OR) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseLogicalAnd();
-            if (!TYPE_BOOL.equals(normalizeType(leftType)) || !TYPE_BOOL.equals(normalizeType(rightType))) {
-                throw semanticError(operatorToken,
-                        String.format("Operador '%s' exige operandos bool.", operatorToken.getValue()));
-            }
-            leftType = TYPE_BOOL;
+            ExprNode right = parseLogicalAnd();
+            left = new BinaryExprNode(left, operatorToken, right);
         }
-        return leftType;
+        return left;
     }
 
-    private String parseLogicalAnd() {
-        String leftType = parseRelational();
+    private ExprNode parseLogicalAnd() {
+        ExprNode left = parseRelational();
         while (currentToken.getType() == TokenType.LOGICAL_AND) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseRelational();
-            if (!TYPE_BOOL.equals(normalizeType(leftType)) || !TYPE_BOOL.equals(normalizeType(rightType))) {
-                throw semanticError(operatorToken,
-                        String.format("Operador '%s' exige operandos bool.", operatorToken.getValue()));
-            }
-            leftType = TYPE_BOOL;
+            ExprNode right = parseRelational();
+            left = new BinaryExprNode(left, operatorToken, right);
         }
-        return leftType;
+        return left;
     }
 
-    private String parseRelational() {
-        String leftType = parseSum();
+    private ExprNode parseRelational() {
+        ExprNode left = parseSum();
         while (isRelationalOperator(currentToken.getType())) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseSum();
-
-            if (operatorToken.getType() == TokenType.EQUAL || operatorToken.getType() == TokenType.NOT_EQUAL) {
-                if (!areTypesCompatible(leftType, rightType) && !areTypesCompatible(rightType, leftType)) {
-                    throw semanticError(operatorToken,
-                            String.format("Comparacao entre tipos incompativeis: '%s' e '%s'.",
-                                    normalizeType(leftType), normalizeType(rightType)));
-                }
-            } else if (!isNumericOrUnknown(leftType) && !TYPE_STRING.equals(normalizeType(leftType))) {
-                throw semanticError(operatorToken,
-                        String.format("Operador '%s' exige tipo ordenavel.", operatorToken.getValue()));
-            } else if (!areTypesCompatible(leftType, rightType) && !areTypesCompatible(rightType, leftType)) {
-                throw semanticError(operatorToken,
-                        String.format("Comparacao entre tipos incompativeis: '%s' e '%s'.",
-                                normalizeType(leftType), normalizeType(rightType)));
-            }
-
-            leftType = TYPE_BOOL;
+            ExprNode right = parseSum();
+            left = new BinaryExprNode(left, operatorToken, right);
         }
-        return leftType;
+        return left;
     }
 
-    private String parseSum() {
-        String leftType = parseMult();
+    private ExprNode parseSum() {
+        ExprNode left = parseMult();
         while (currentToken.getType() == TokenType.PLUS || currentToken.getType() == TokenType.MINUS) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseMult();
-
-            if (operatorToken.getType() == TokenType.PLUS
-                    && (TYPE_STRING.equals(normalizeType(leftType)) || TYPE_STRING.equals(normalizeType(rightType)))) {
-                if (!TYPE_STRING.equals(normalizeType(leftType)) || !TYPE_STRING.equals(normalizeType(rightType))) {
-                    throw semanticError(operatorToken, "Concatenacao exige dois operandos string.");
-                }
-                leftType = TYPE_STRING;
-            } else {
-                leftType = combineNumericTypes(operatorToken, leftType, rightType);
-            }
+            ExprNode right = parseMult();
+            left = new BinaryExprNode(left, operatorToken, right);
         }
-        return leftType;
+        return left;
     }
 
-    private String parseMult() {
-        String leftType = parseUnary();
+    private ExprNode parseMult() {
+        ExprNode left = parseUnary();
         while (currentToken.getType() == TokenType.MULTIPLY || currentToken.getType() == TokenType.DIVIDE
                 || currentToken.getType() == TokenType.MOD) {
             Token operatorToken = currentToken;
             advance();
-            String rightType = parseUnary();
-
-            if (operatorToken.getType() == TokenType.MOD
-                    && (!isIntegerOrUnknown(leftType) || !isIntegerOrUnknown(rightType))) {
-                throw semanticError(operatorToken, "Operador '%' exige operandos inteiros.");
-            }
-
-            leftType = combineNumericTypes(operatorToken, leftType, rightType);
+            ExprNode right = parseUnary();
+            left = new BinaryExprNode(left, operatorToken, right);
         }
-        return leftType;
+        return left;
     }
 
-    private String parseUnary() {
+    private ExprNode parseUnary() {
         TokenType type = currentToken.getType();
-        if (type == TokenType.MINUS) {
+        if (type == TokenType.MINUS || type == TokenType.LOGICAL_NOT || type == TokenType.BITWISE_AND
+                || type == TokenType.MULTIPLY || type == TokenType.ARROW) {
             Token operatorToken = currentToken;
             advance();
-            String unaryType = parseUnary();
-            if (!isNumericOrUnknown(unaryType)) {
-                throw semanticError(operatorToken, "Operador '-' exige operando numerico.");
-            }
-            return unaryType;
-        } else if (type == TokenType.LOGICAL_NOT) {
-            Token operatorToken = currentToken;
-            advance();
-            String unaryType = parseUnary();
-            if (!TYPE_BOOL.equals(normalizeType(unaryType))) {
-                throw semanticError(operatorToken, "Operador '!' exige operando bool.");
-            }
-            return TYPE_BOOL;
-        } else if (type == TokenType.BITWISE_AND) {
-            advance();
-            return "*" + parseUnary();
-        } else if (type == TokenType.MULTIPLY) {
-            Token operatorToken = currentToken;
-            advance();
-            String unaryType = parseUnary();
-            if (normalizeType(unaryType).startsWith("*")) {
-                return unaryType.substring(1);
-            }
-            if (TYPE_UNKNOWN.equals(normalizeType(unaryType))) {
-                return TYPE_UNKNOWN;
-            }
-            throw semanticError(operatorToken, "Operador '*' exige ponteiro.");
-        } else if (type == TokenType.ARROW) {
-            advance();
-            parseUnary();
-            return TYPE_UNKNOWN;
+            ExprNode operand = parseUnary();
+            return new UnaryExprNode(operatorToken, operand);
         }
 
         return parseFactor();
     }
 
-    private String parseFactor() {
+    private ExprNode parseFactor() {
         validateToken();
         TokenType type = currentToken.getType();
 
-        if (isLiteral(type)) {
-            String literalType = getLiteralType(type);
+        if (isLiteral(type) || type == TokenType.NIL) {
+            Token literalToken = currentToken;
             advance();
-            return literalType;
-        } else if (type == TokenType.NIL) {
-            advance();
-            return TYPE_NIL;
+            return new LiteralExprNode(literalToken);
         } else if (type == TokenType.LPAREN) {
             advance();
-            String expressionType = parseExpression();
+            ExprNode expr = parseExpression();
             match(TokenType.RPAREN);
-            return expressionType;
+            return expr;
         } else if (type == TokenType.IDENTIFIER) {
             return parseIdentifierFactor();
         }
@@ -1352,112 +857,66 @@ public class Parser {
         throw syntaxError("Fator inesperado na expressao.");
     }
 
-    private String parseIdentifierFactor() {
+    private ExprNode parseIdentifierFactor() {
         Token idToken = match(TokenType.IDENTIFIER);
-        String name = idToken.getValue();
-
-        if (isBuiltInFunction(name) && currentToken.getType() == TokenType.LPAREN) {
-            advance();
-            List<String> argumentTypes = parseOptionalArguments();
-            match(TokenType.RPAREN);
-            return getBuiltInFunctionReturnType(name, argumentTypes);
-        }
-
-        Symbol symbol = lookupSymbol(name);
-        boolean importedPackage = importedPackages.contains(name);
-
-        if (currentToken.getType() == TokenType.LPAREN && isKnownType(name)
-                && (symbol == null || "TYPE".equals(symbol.getCategory()))) {
-            advance();
-            parseOptionalArguments();
-            match(TokenType.RPAREN);
-            return normalizeType(name);
-        }
-
-        if (symbol == null && !importedPackage) {
-            throw semanticError(idToken,
-                    String.format("Variavel '%s' nao declarada.", name));
-        }
-
-        String resultType = symbol != null ? symbol.getType() : TYPE_UNKNOWN;
-        boolean simpleFunctionCall = symbol != null && "FUNC".equals(symbol.getCategory());
+        ExprNode result = new IdentifierExprNode(idToken);
 
         while (true) {
             if (currentToken.getType() == TokenType.DOT) {
                 advance();
-                match(TokenType.IDENTIFIER);
-                simpleFunctionCall = false;
-                resultType = TYPE_UNKNOWN;
+                Token fieldToken = match(TokenType.IDENTIFIER);
+                result = new FieldAccessExprNode(result, fieldToken);
             } else if (currentToken.getType() == TokenType.LPAREN) {
+                Token callToken = currentToken;
                 advance();
-                List<String> argumentTypes = parseOptionalArguments();
+                List<ExprNode> args = parseOptionalArguments();
                 match(TokenType.RPAREN);
-                if (simpleFunctionCall) {
-                    resultType = validateFunctionCall(idToken, symbol, argumentTypes);
-                } else if (symbol != null && !"FUNC".equals(symbol.getCategory())) {
-                    resultType = TYPE_UNKNOWN;
-                }
+                result = new CallExprNode(result, args, callToken);
             } else if (currentToken.getType() == TokenType.LBRACKET) {
-                resultType = parseIndexAccess(resultType);
-                simpleFunctionCall = false;
+                result = parseIndexOrSlice(result);
             } else {
                 break;
             }
         }
 
-        return resultType;
+        return result;
     }
 
-    private String parseIndexAccess(String collectionType) {
+    private ExprNode parseIndexOrSlice(ExprNode collection) {
+        Token bracketToken = currentToken;
         advance();
+
+        ExprNode first = null;
         if (currentToken.getType() != TokenType.COLON) {
-            String indexType = parseExpression();
-            if (!isIntegerType(indexType) && !TYPE_UNKNOWN.equals(normalizeType(indexType))) {
-                throw semanticError(currentToken, "Indice deve ser inteiro.");
-            }
+            first = parseExpression();
         }
 
         if (currentToken.getType() == TokenType.COLON) {
             advance();
-        }
-
-        if (currentToken.getType() != TokenType.RBRACKET) {
-            String indexType = parseExpression();
-            if (!isIntegerType(indexType) && !TYPE_UNKNOWN.equals(normalizeType(indexType))) {
-                throw semanticError(currentToken, "Indice deve ser inteiro.");
+            ExprNode second = null;
+            if (currentToken.getType() != TokenType.RBRACKET) {
+                second = parseExpression();
             }
+            match(TokenType.RBRACKET);
+            return new SliceExprNode(collection, first, second, bracketToken);
         }
 
         match(TokenType.RBRACKET);
-        String normalizedType = normalizeType(collectionType);
-
-        if (normalizedType.startsWith("slice_")) {
-            return normalizedType.substring("slice_".length());
-        }
-
-        if (normalizedType.startsWith("array_")) {
-            return normalizedType.substring("array_".length());
-        }
-
-        if (normalizedType.startsWith("map_")) {
-            return normalizedType.substring("map_".length());
-        }
-
-        return TYPE_UNKNOWN;
+        return new IndexExprNode(collection, first, bracketToken);
     }
 
-    private List<String> parseOptionalArguments() {
-        List<String> argumentTypes = new ArrayList<>();
+    private List<ExprNode> parseOptionalArguments() {
+        List<ExprNode> args = new ArrayList<>();
 
         if (currentToken.getType() != TokenType.RPAREN) {
-            argumentTypes.add(parseExpression());
+            args.add(parseExpression());
             while (currentToken.getType() == TokenType.COMMA) {
                 advance();
-                argumentTypes.add(parseExpression());
+                args.add(parseExpression());
             }
         }
 
-        return argumentTypes;
+        return args;
     }
 
     private boolean isRelationalOperator(TokenType type) {
@@ -1480,30 +939,6 @@ public class Parser {
         return type == TokenType.INT_LITERAL || type == TokenType.FLOAT_LITERAL
                 || type == TokenType.STRING_LITERAL || type == TokenType.RAW_STRING_LITERAL
                 || type == TokenType.RUNE_LITERAL || type == TokenType.TRUE || type == TokenType.FALSE;
-    }
-
-    private String getLiteralType(TokenType type) {
-        if (type == TokenType.INT_LITERAL) {
-            return TYPE_INT;
-        }
-
-        if (type == TokenType.FLOAT_LITERAL) {
-            return TYPE_FLOAT;
-        }
-
-        if (type == TokenType.STRING_LITERAL || type == TokenType.RAW_STRING_LITERAL) {
-            return TYPE_STRING;
-        }
-
-        if (type == TokenType.RUNE_LITERAL) {
-            return TYPE_RUNE;
-        }
-
-        if (type == TokenType.TRUE || type == TokenType.FALSE) {
-            return TYPE_BOOL;
-        }
-
-        return TYPE_UNKNOWN;
     }
 
     public int getErrorLine() {

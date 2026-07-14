@@ -17,8 +17,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import model.ast.ProgramNode;
 import model.entities.Lexer;
 import model.entities.Parser;
+import model.entities.SemanticAnalyzer;
 
 public class CompilerInterface extends JFrame {
 
@@ -441,8 +443,17 @@ public class CompilerInterface extends JFrame {
 
 			Parser parser = new Parser(lexer.getTokens());
 
-			parser.parse();
-			highlightErrors(parser.getErrorLines());
+			ProgramNode program = parser.parse();
+
+			System.out.println("\n### INICIANDO ANÁLISE SEMÂNTICA ###");
+
+			SemanticAnalyzer semanticAnalyzer = new SemanticAnalyzer(program);
+
+			semanticAnalyzer.analyze();
+
+			List<Integer> errorLines = new ArrayList<>(parser.getErrorLines());
+			errorLines.addAll(semanticAnalyzer.getErrorLines());
+			highlightErrors(errorLines);
 
 		} catch (Exception ex) {
 
