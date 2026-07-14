@@ -1,5 +1,9 @@
 package model.entities;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
 public class Symbol {
 	private String name;
 	private String type; 
@@ -10,6 +14,8 @@ public class Symbol {
 	private String assignedValue; 
 	private int memoryAddress;
 	private int sizeInBytes;   
+	private List<String> parameterTypes;
+	private List<String> returnTypes;
 
 	public Symbol(String name, String type, String category, int scopeLevel, boolean isInitialized, String assignedValue) {
 		super();
@@ -21,6 +27,8 @@ public class Symbol {
 		this.assignedValue = assignedValue;
 		this.memoryAddress = 0; 
 		this.sizeInBytes = 0;   
+		this.parameterTypes = new ArrayList<>();
+		this.returnTypes = new ArrayList<>();
 	}
 	
 	public Symbol(String name, String type, String category, int scopeLevel) {
@@ -41,6 +49,10 @@ public class Symbol {
 
 	public String getType() {
 		return type;
+	}
+
+	public void setType(String type) {
+		this.type = type;
 	}
 
 	public String getCategory() {
@@ -75,10 +87,27 @@ public class Symbol {
 		this.sizeInBytes = sizeInBytes;
 	}
 
+	public List<String> getParameterTypes() {
+		return Collections.unmodifiableList(parameterTypes);
+	}
+
+	public void setParameterTypes(List<String> parameterTypes) {
+		this.parameterTypes = new ArrayList<>(parameterTypes);
+	}
+
+	public List<String> getReturnTypes() {
+		return Collections.unmodifiableList(returnTypes);
+	}
+
+	public void setReturnTypes(List<String> returnTypes) {
+		this.returnTypes = new ArrayList<>(returnTypes);
+	}
+
 	@Override 
 	public String toString() {
-		return String.format("Symbol[Name: %s, Type: %s, Category: %s, Scope: %d, Initialized: %b, Value: %s, Memory: %d, Size: %d]", 
+		return String.format("Symbol[Name: %s, Type: %s, Category: %s, Scope: %d, Initialized: %b, Value: %s, Memory: %d, Size: %d, Params: %s, Returns: %s]", 
 		                     name, type, category, scopeLevel, isInitialized, 
-							 assignedValue != null ? assignedValue : "N/A", memoryAddress, sizeInBytes);
+							 assignedValue != null ? assignedValue : "N/A", memoryAddress, sizeInBytes,
+							 parameterTypes, returnTypes);
 	}
 }
